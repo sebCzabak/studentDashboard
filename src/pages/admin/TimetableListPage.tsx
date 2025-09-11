@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
-import { collection, onSnapshot, doc, deleteDoc, addDoc, getDocs } from 'firebase/firestore';
-import { db } from '../../config/firebase'; // Upewnij się, że ścieżka jest poprawna
-import { Link as RouterLink, useNavigate } from 'react-router-dom';
+import { collection, onSnapshot } from 'firebase/firestore';
+import { db } from '../../config/firebase';
+import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import toast from 'react-hot-toast';
-
 import {
   Box,
   Button,
@@ -12,136 +11,98 @@ import {
   Table,
   TableBody,
   TableCell,
+  Chip,
   TableContainer,
   TableHead,
   TableRow,
   IconButton,
   CircularProgress,
   Tooltip,
-  Chip,
   Switch,
 } from '@mui/material';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
+import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import GridViewIcon from '@mui/icons-material/GridView';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-
-// Import Twojego zaawansowanego modala
-import { TimetableFormModal } from '../../features/timetable/components/TimetableFormModal';
-import { updateTimetableStatus } from '../../features/timetable/scheduleService';
-
-// Uproszczone typy dla danych w tabeli i "słowników"
-interface Timetable {
-  id: string;
-  name: string;
-  curriculumName?: string;
-  semesterName?: string;
-  [key: string]: any; //
-}
-interface DictionaryData {
-  id: string;
-  name: string;
-  [key: string]: any;
-}
-
-// Funkcja pomocnicza do pobierania danych "słownikowych"
-const fetchDictionary = async (collectionName: string): Promise<DictionaryData[]> => {
-  const querySnapshot = await getDocs(collection(db, collectionName));
-  return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as DictionaryData));
-};
+import { TimetableFormModal } from '../admin/TimetableFormModal';
+import {
+  createTimetable,
+  updateTimetable,
+  deleteTimetableAndEntries,
+  updateTimetableStatus,
+} from '../../features/timetable/scheduleService';
+import { groupsService, getSemesters } from '../../features/shared/dictionaryService';
+import { getCurriculums } from '../../features/curriculums/curriculumsService';
+import type { Timetable, Group, Semester, Curriculum } from '../../features/timetable/types';
 
 export const TimetablesListPage = () => {
   const [timetables, setTimetables] = useState<Timetable[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [semesters, setSemesters] = useState<Semester[]>([]);
+  const [curriculums, setCurriculums] = useState<Curriculum[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingTimetable, setEditingTimetable] = useState<Timetable | null>(null);
   const navigate = useNavigate();
 
-  // Stany dla danych "słownikowych" potrzebnych w modalu
-  const [semesters, setSemesters] = useState<DictionaryData[]>([]);
-  const [groups, setGroups] = useState<DictionaryData[]>([]);
-  const [curriculums, setCurriculums] = useState<DictionaryData[]>([]);
-
-  // Stany do zarządzania modalem
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [initialModalData, setInitialModalData] = useState<Timetable | null>(null);
-
-  // Pobieranie danych dla list i dla selectów w modalu
   useEffect(() => {
-    const fetchAllData = async () => {
-      try {
-        // Równoległe pobieranie danych "słownikowych"
-        const [semestersData, groupsData, curriculumsData] = await Promise.all([
-          fetchDictionary('semesters'),
-          fetchDictionary('groups'),
-          fetchDictionary('curriculums'),
-        ]);
-        setSemesters(semestersData);
-        setGroups(groupsData);
-        setCurriculums(curriculumsData);
-      } catch (error) {
-        console.error('Błąd pobierania danych słownikowych:', error);
-        toast.error('Nie udało się załadować danych potrzebnych do formularza.');
-      }
-    };
-
-    fetchAllData();
-
-    // Nasłuchiwanie na zmiany w planach zajęć
-    const q = collection(db, 'timetables');
-    const unsubscribe = onSnapshot(q, (querySnapshot) => {
-      const timetablesData = querySnapshot.docs.map(
-        (doc) =>
-          ({
-            id: doc.id,
-            ...doc.data(),
-          } as Timetable)
-      );
+    const timetablesQuery = collection(db, 'timetables');
+    const unsubscribe = onSnapshot(timetablesQuery, (snapshot) => {
+      const timetablesData = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Timetable));
       setTimetables(timetablesData);
-      setLoading(false);
+      if (loading) {
+        Promise.all([groupsService.getAll(), getSemesters(), getCurriculums()])
+          .then(([groupsData, semestersData, curriculumsData]) => {
+            setGroups(groupsData as Group[]);
+            setSemesters(semestersData as Semester[]);
+            setCurriculums(curriculumsData as Curriculum[]);
+          })
+          .catch((_err) => toast.error('Błąd wczytywania danych słownikowych.'))
+          .finally(() => setLoading(false));
+      }
     });
-
     return () => unsubscribe();
-  }, []);
+  }, [loading]);
 
-  // Logika zapisu przekazywana do modala
-  const handleSave = async (data: any) => {
-    // Jeśli initialModalData ma ID, to edytujemy. W przeciwnym razie tworzymy nowy.
-    // Twój modal obsługuje tylko tworzenie i kopiowanie, więc upraszczamy do tworzenia.
-    await toast.promise(addDoc(collection(db, 'timetables'), data), {
+  const handleSave = async (data: Partial<Timetable>, id?: string) => {
+    const promise = id ? updateTimetable(id, data) : createTimetable(data as Timetable);
+    await toast.promise(promise, {
       loading: 'Zapisywanie planu...',
-      success: 'Plan zajęć został pomyślnie utworzony!',
-      error: 'Wystąpił błąd podczas zapisu.',
+      success: `Plan został pomyślnie ${id ? 'zaktualizowany' : 'utworzony'}!`,
+      error: `Błąd podczas ${id ? 'aktualizacji' : 'tworzenia'} planu.`,
     });
   };
 
-  const handleDelete = async (id: string) => {
-    if (window.confirm('Czy na pewno chcesz usunąć ten plan zajęć? Tej operacji nie można cofnąć.')) {
-      await toast.promise(deleteDoc(doc(db, 'timetables', id)), {
-        loading: 'Usuwanie planu...',
-        success: 'Plan został usunięty.',
-        error: 'Nie udało się usunąć planu.',
+  const handleDelete = async (timetableId: string, timetableName: string) => {
+    if (window.confirm(`Czy na pewno chcesz usunąć plan "${timetableName}" i wszystkie jego zajęcia?`)) {
+      await toast.promise(deleteTimetableAndEntries(timetableId), {
+        loading: 'Usuwanie planu i zajęć...',
+        success: 'Plan został pomyślnie usunięty.',
+        error: 'Błąd podczas usuwania.',
       });
     }
   };
+
   const handleStatusChange = async (timetable: Timetable) => {
     const newStatus = timetable.status === 'published' ? 'draft' : 'published';
-    const promise = updateTimetableStatus(timetable.id, newStatus);
-
-    await toast.promise(promise, {
+    await toast.promise(updateTimetableStatus(timetable.id, newStatus), {
       loading: 'Aktualizowanie statusu...',
-      success: `Status planu zmieniono na: ${newStatus === 'published' ? 'Opublikowany' : 'Roboczy'}`,
+      success: `Status zmieniony na: ${newStatus === 'published' ? 'Opublikowany' : 'Roboczy'}`,
       error: 'Błąd podczas zmiany statusu.',
     });
-    // onSnapshot automatycznie odświeży listę
   };
 
-  const openModalForCopy = (timetable: Timetable) => {
-    setInitialModalData(timetable);
+  const handleOpenModal = (timetable: Timetable | null = null) => {
+    setEditingTimetable(timetable);
     setIsModalOpen(true);
   };
 
-  const openModalForNew = () => {
-    setInitialModalData(null);
+  const handleOpenCopyModal = (timetableToCopy: Timetable) => {
+    const { id, ...copyData } = timetableToCopy;
+    copyData.name = `${copyData.name || ''} - Kopia`;
+    setEditingTimetable(copyData as Timetable);
     setIsModalOpen(true);
   };
 
@@ -160,7 +121,6 @@ export const TimetablesListPage = () => {
           component={RouterLink}
           to="/admin"
           startIcon={<ArrowBackIcon />}
-          sx={{ mb: 2 }}
         >
           Wróć do pulpitu
         </Button>
@@ -168,7 +128,7 @@ export const TimetablesListPage = () => {
         <Button
           variant="contained"
           startIcon={<AddCircleOutlineIcon />}
-          onClick={openModalForNew}
+          onClick={() => handleOpenModal()}
         >
           Dodaj nowy plan
         </Button>
@@ -178,7 +138,7 @@ export const TimetablesListPage = () => {
           <TableHead>
             <TableRow>
               <TableCell>Nazwa Planu</TableCell>
-              <TableCell>Rok Akademicki</TableCell>
+              <TableCell>Siatka Programowa</TableCell>
               <TableCell>Status</TableCell>
               <TableCell align="center">Publikacja</TableCell>
               <TableCell align="right">Akcje</TableCell>
@@ -191,9 +151,8 @@ export const TimetablesListPage = () => {
                 hover
               >
                 <TableCell>{timetable.name}</TableCell>
-                <TableCell>{timetable.academicYear || '---'}</TableCell>
+                <TableCell>{timetable.curriculumName || '---'}</TableCell>
                 <TableCell>
-                  {/* ✅ Dodajemy Chip z kolorem zależnym od statusu */}
                   <Chip
                     label={timetable.status === 'published' ? 'Opublikowany' : 'Roboczy'}
                     color={timetable.status === 'published' ? 'success' : 'default'}
@@ -210,7 +169,7 @@ export const TimetablesListPage = () => {
                   </Tooltip>
                 </TableCell>
                 <TableCell align="right">
-                  <Tooltip title="Układaj plan">
+                  <Tooltip title="Układaj w kreatorze">
                     <IconButton
                       color="secondary"
                       onClick={() => navigate(`/admin/timetables/${timetable.id}`)}
@@ -218,20 +177,23 @@ export const TimetablesListPage = () => {
                       <GridViewIcon />
                     </IconButton>
                   </Tooltip>
-                  <Tooltip title="Kopiuj">
+                  <Tooltip title="Edytuj dane">
                     <IconButton
                       color="primary"
-                      onClick={() => openModalForCopy(timetable)}
+                      onClick={() => handleOpenModal(timetable)}
                     >
+                      <EditIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Kopiuj">
+                    <IconButton onClick={() => handleOpenCopyModal(timetable)}>
                       <ContentCopyIcon />
                     </IconButton>
                   </Tooltip>
-                  {/* TODO: Można dodać przycisk edycji, który przekazywałby ID do onSave */}
-                  {/* <Tooltip title="Edytuj"><IconButton>...</IconButton></Tooltip> */}
                   <Tooltip title="Usuń">
                     <IconButton
                       color="error"
-                      onClick={() => handleDelete(timetable.id)}
+                      onClick={() => handleDelete(timetable.id, timetable.name)}
                     >
                       <DeleteIcon />
                     </IconButton>
@@ -243,15 +205,17 @@ export const TimetablesListPage = () => {
         </Table>
       </TableContainer>
 
-      <TimetableFormModal
-        open={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        onSave={handleSave}
-        semesters={semesters}
-        groups={groups}
-        curriculums={curriculums}
-        initialData={initialModalData}
-      />
+      {isModalOpen && (
+        <TimetableFormModal
+          open={isModalOpen}
+          onClose={() => setIsModalOpen(false)}
+          onSave={handleSave}
+          timetable={editingTimetable}
+          semesters={semesters}
+          groups={groups}
+          curriculums={curriculums}
+        />
+      )}
     </Box>
   );
 };

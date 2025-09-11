@@ -111,6 +111,12 @@ const adminNavItems = [
     path: '/admin/submissions',
     allowedRoles: ['admin', 'pracownik_dziekanatu'],
   },
+  {
+    text: 'Zarządzaj Użytkownikiami',
+    icon: <ArticleIcon />,
+    path: '/admin/users',
+    allowedRoles: ['admin'],
+  },
   // === NOWY LINK ===
   { text: 'Słowniki Systemowe', icon: <StyleIcon />, path: '/admin/dictionaries', allowedRoles: ['admin'] },
   { text: 'Zarządzaj Przedmiotami', icon: <LibraryBooksIcon />, path: '/admin/subjects', allowedRoles: ['admin'] },
@@ -161,7 +167,7 @@ export const MainLayout = () => {
           <IconButton
             color="inherit"
             component="a"
-            href="mailto:example@example.com"
+            href="https://gmail.com"
             target="_blank"
             title="Poczta"
           >

@@ -6,16 +6,12 @@ import { DraggableClass } from './DraggableObject';
 interface UnscheduledClassesPanelProps {
   subjects: CurriculumSubject[];
   entries: ScheduleEntry[];
-  isReadOnly: boolean; // ✅ KROK 1: Dodajemy brakujący prop
+  isReadOnly: boolean;
 }
 
 const HOURS_PER_BLOCK = 1.5;
 
-export const UnscheduledClassesPanel: React.FC<UnscheduledClassesPanelProps> = ({
-  subjects,
-  entries,
-  isReadOnly, // Odbieramy prop
-}) => {
+export const UnscheduledClassesPanel: React.FC<UnscheduledClassesPanelProps> = ({ subjects, entries, isReadOnly }) => {
   const usedHoursMap = useMemo(() => {
     const map = new Map<string, number>();
     entries.forEach((entry) => {
@@ -49,7 +45,7 @@ export const UnscheduledClassesPanel: React.FC<UnscheduledClassesPanelProps> = (
               key={subject.id}
               subject={subject}
               isUsed={isFullyScheduled}
-              isReadOnly={isReadOnly} // ✅ KROK 2: Przekazujemy prop dalej w dół
+              isReadOnly={isReadOnly}
             />
           );
         })}

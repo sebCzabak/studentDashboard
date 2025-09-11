@@ -4,8 +4,15 @@ import { Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow
 import { DraggableScheduleEntry } from './DraggableScheduleEntry';
 import type { ScheduleEntry, DayOfWeek, LecturerAvailability } from '../../features/timetable/types';
 
-const DAYS: DayOfWeek[] = ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek', 'Sobota', 'Niedziela'];
-const TIME_SLOTS = ['08:00', '09:45', '11:30', '13:15', '15:00', '16:45', '18:30'];
+const STUDY_MODE_DAYS: Record<string, DayOfWeek[]> = {
+  stacjonarny: ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek'],
+  zaoczne: ['Sobota', 'Niedziela'],
+
+  podyplomowe: ['Sobota', 'Niedziela'],
+  anglojęzyczne: ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek'],
+};
+const TIME_SLOTS_STACJONARNE = ['08:00', '09:45', '11:30', '13:15', '15:00', '16:45', '18:30'];
+const TIME_SLOTS_ONLINE = ['08:00', '09:20', '10:40', '12:00', '13:20', '14:40', '16:00', '17:20', '18:40'];
 
 const timeToMinutes = (time?: string): number | null => {
   if (!time || !time.includes(':')) {
@@ -61,6 +68,8 @@ interface TimetableGridProps {
   lecturerAvailability: LecturerAvailability;
   conflictingEntries: ScheduleEntry[];
   isReadOnly: boolean;
+  studyMode: 'stacjonarny' | 'zaoczne' | 'podyplomowe' | 'anglojęzyczne';
+  teachingMode: 'stacjonarny' | 'online';
 }
 
 export const TimetableGrid: React.FC<TimetableGridProps> = ({
@@ -69,18 +78,24 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
   activeLecturerId,
   lecturerAvailability,
   conflictingEntries,
+  studyMode,
+  teachingMode,
 }) => {
+  const daysToDisplay = STUDY_MODE_DAYS[studyMode] || STUDY_MODE_DAYS['stacjonarny'];
+  const timeSlots = teachingMode === 'online' ? TIME_SLOTS_ONLINE : TIME_SLOTS_STACJONARNE;
   const cellStatusMap = useMemo(() => {
     const map = new Map<string, CellStatus>();
     if (!activeLecturerId) return map;
 
     const availabilitySlots = lecturerAvailability[activeLecturerId] || [];
+
     for (const slot of availabilitySlots) {
       const startMinutes = timeToMinutes(slot.startTime);
       const endMinutes = timeToMinutes(slot.endTime);
+
       if (startMinutes === null || endMinutes === null) continue;
 
-      for (const time of TIME_SLOTS) {
+      for (const time of timeSlots) {
         const timeMinutes = timeToMinutes(time);
         if (timeMinutes !== null && timeMinutes >= startMinutes && timeMinutes < endMinutes) {
           map.set(`${slot.day}-${time}`, 'available');
@@ -95,21 +110,22 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
     }
 
     return map;
-  }, [activeLecturerId, lecturerAvailability, conflictingEntries]);
+  }, [activeLecturerId, lecturerAvailability, conflictingEntries, timeSlots]);
 
   return (
     <TableContainer
       component={Paper}
       sx={{ height: 'calc(100vh - 120px)' }}
     >
-      <Table stickyHeader>
+      <Table sx={{ tableLayout: 'fixed' }}>
         <TableHead>
           <TableRow>
-            <TableCell sx={{ minWidth: 100 }}>Godzina</TableCell>
-            {DAYS.map((day) => (
+            <TableCell sx={{ fontWeight: 'bold', width: '100px' }}>Godzina</TableCell>
+            {daysToDisplay.map((day) => (
               <TableCell
                 key={day}
                 align="center"
+                sx={{ fontWeight: 'bold' }}
               >
                 {day}
               </TableCell>
@@ -117,7 +133,7 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
           </TableRow>
         </TableHead>
         <TableBody>
-          {TIME_SLOTS.map((time) => (
+          {timeSlots.map((time) => (
             <TableRow key={time}>
               <TableCell
                 component="th"
@@ -125,7 +141,7 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
               >
                 <Typography variant="subtitle2">{time}</Typography>
               </TableCell>
-              {DAYS.map((day) => {
+              {daysToDisplay.map((day) => {
                 const key = `${day}-${time}`;
                 const cellEntries = entries.filter((e) => e.day === day && e.startTime === time);
                 const status = cellStatusMap.get(key) || 'default';

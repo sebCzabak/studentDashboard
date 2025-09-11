@@ -37,6 +37,7 @@ import { ManageDictionariesPage } from './pages/admin/ManageDictionariesPage';
 import { NewTimetableEditorPage } from './pages/NewTimetableEditorPages/NewTimetableEditorPage';
 import { TimetablesListPage } from './pages/admin/TimetableListPage';
 import { MyTimetablePage } from './pages/MyTimetablePage';
+import { ManageUsersPage } from './pages/admin/ManageUsersPage';
 
 function App() {
   return (
@@ -149,10 +150,6 @@ function App() {
               element={<ApplicationDetailPage />}
             />
             <Route
-              path="semesters"
-              element={<ManageSemestersPage />}
-            />
-            <Route
               path="subjects"
               element={<ManageSubjectsPage />}
             />
@@ -172,6 +169,14 @@ function App() {
               path="TimetableList"
               element={<TimetablesListPage />}
             />{' '}
+            <Route
+              path="semesters"
+              element={<ManageSemestersPage />}
+            />
+            <Route
+              path="users"
+              element={<ManageUsersPage />}
+            />
           </Route>
           {/* ================================================================== */}
         </Routes>

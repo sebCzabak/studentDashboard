@@ -19,20 +19,10 @@ import type {
   Room,
   LecturerAvailability,
   Subject,
+  Timetable,
+  Curriculum,
 } from '../../../features/timetable/types';
-import type { UserProfile } from '../../../features/user/types';
-
-// Definicja typu dla samego obiektu Timetable
-interface Timetable {
-  id: string;
-  name: string;
-  status: 'draft' | 'published';
-  curriculumId: string;
-  semesterId: string;
-  groupIds: string[];
-}
-
-// Definiuje, co DOKŁADNIE zwraca nasza funkcja fetchRelatedData
+import type { UserProfile } from '../../../features/user/userService';
 interface TimetablePageData {
   timetableData: Timetable;
   curriculumSubjects: CurriculumSubject[];
@@ -48,13 +38,17 @@ const fetchRelatedData = async (timetableId: string): Promise<TimetablePageData>
 
   const timetableData = { id: timetableSnap.id, ...timetableSnap.data() } as Timetable;
 
+  if (!timetableData.curriculumId || !timetableData.semesterId) {
+    throw new Error("Dokument 'timetable' nie zawiera 'curriculumId' lub 'semesterId'!");
+  }
+
   const curriculumRef = doc(db, 'curriculums', timetableData.curriculumId);
   const curriculumSnap = await getDoc(curriculumRef);
   if (!curriculumSnap.exists()) throw new Error(`Nie znaleziono siatki o ID: ${timetableData.curriculumId}`);
-  const curriculumData = curriculumSnap.data();
+  const curriculumData = curriculumSnap.data() as Curriculum;
 
   const targetSemester = curriculumData.semesters?.find(
-    (semester: any) => semester.semesterId?.trim() === timetableData.semesterId?.trim()
+    (semester) => semester.semesterId?.trim() === timetableData.semesterId?.trim()
   );
   if (!targetSemester) throw new Error(`W siatce nie znaleziono semestru o ID: ${timetableData.semesterId}`);
 
@@ -63,7 +57,7 @@ const fetchRelatedData = async (timetableId: string): Promise<TimetablePageData>
     return { timetableData, curriculumSubjects: [], groups: [], rooms: [], lecturerAvailability: {} };
   }
 
-  const subjectIds = subjectsFromSemester.map((s: any) => s.subjectId).filter(Boolean);
+  const subjectIds = subjectsFromSemester.map((s) => s.subjectId).filter(Boolean);
   if (subjectIds.length === 0) {
     return { timetableData, curriculumSubjects: [], groups: [], rooms: [], lecturerAvailability: {} };
   }
@@ -74,22 +68,26 @@ const fetchRelatedData = async (timetableId: string): Promise<TimetablePageData>
   subjectsSnap.forEach((doc) => subjectsMap.set(doc.id, { id: doc.id, ...doc.data() } as Subject));
 
   const lecturerIds = [
-    ...new Set(subjectsFromSemester.map((subject: any) => subject.lecturerId).filter(Boolean)),
+    ...new Set(subjectsFromSemester.map((subject) => subject.lecturerId).filter(Boolean)),
   ] as string[];
   const lecturersMap = new Map<string, UserProfile>();
+  const lecturerAvailability: LecturerAvailability = {};
+
   if (lecturerIds.length > 0) {
     const lecturersQuery = query(collection(db, 'users'), where('__name__', 'in', lecturerIds));
     const lecturersSnap = await getDocs(lecturersQuery);
     lecturersSnap.forEach((doc) => lecturersMap.set(doc.id, { id: doc.id, ...doc.data() } as UserProfile));
+
+    // ✅ POPRAWKA: Poprawnie pobieramy dane z dedykowanej kolekcji
+    const availabilityQuery = query(collection(db, 'lecturerAvailabilities'), where('__name__', 'in', lecturerIds));
+    const availabilitySnap = await getDocs(availabilityQuery);
+    availabilitySnap.forEach((doc) => {
+      lecturerAvailability[doc.id] = doc.data().slots || [];
+    });
   }
 
-  const lecturerAvailability: LecturerAvailability = {};
-  lecturersMap.forEach((lecturerProfile, lecturerId) => {
-    lecturerAvailability[lecturerId] = lecturerProfile.availability || [];
-  });
-
   const curriculumSubjects = subjectsFromSemester
-    .map((curriculumSubj: any): CurriculumSubject | null => {
+    .map((curriculumSubj): CurriculumSubject | null => {
       const subjectDetails = subjectsMap.get(curriculumSubj.subjectId);
       if (!subjectDetails) return null;
       const lecturerDetails = lecturersMap.get(curriculumSubj.lecturerId);
@@ -103,7 +101,7 @@ const fetchRelatedData = async (timetableId: string): Promise<TimetablePageData>
         hours: curriculumSubj.hours,
       };
     })
-    .filter((subj: CurriculumSubject | null): subj is CurriculumSubject => subj !== null);
+    .filter((subj): subj is CurriculumSubject => subj !== null);
 
   let groups: Group[] = [];
   if (timetableData.groupIds && timetableData.groupIds.length > 0) {
@@ -132,13 +130,11 @@ export const useTimetableData = (timetableId: string | undefined) => {
       setLoading(false);
       return;
     }
-
     const getInitialData = async () => {
       try {
         setError(null);
         setLoading(true);
         const data = await fetchRelatedData(timetableId);
-
         setTimetable(data.timetableData);
         setCurriculumSubjects(data.curriculumSubjects);
         setGroups(data.groups);
@@ -147,26 +143,23 @@ export const useTimetableData = (timetableId: string | undefined) => {
       } catch (err: any) {
         console.error('Błąd krytyczny podczas pobierania danych powiązanych:', err);
         setError(err.message);
+      } finally {
         setLoading(false);
       }
     };
-
     getInitialData();
 
     const entriesCollectionRef = collection(db, 'scheduleEntries');
     const q = query(entriesCollectionRef, where('timetableId', '==', timetableId));
-
     const unsubscribe = onSnapshot(
       q,
       (querySnapshot) => {
         const entries = querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as ScheduleEntry));
         setScheduleEntries(entries);
-        setLoading(false);
       },
       (err) => {
         console.error('Błąd pobierania wpisów planu (onSnapshot):', err);
-        setError('Nie udało się pobrać wpisów do planu.');
-        setLoading(false);
+        setError('Nie udało się zsynchronizować planu.');
       }
     );
 

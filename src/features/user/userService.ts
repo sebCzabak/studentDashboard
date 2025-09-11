@@ -1,5 +1,5 @@
 import { db } from '../../config/firebase';
-import { collection, getDocs, query, where, doc, updateDoc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, doc, updateDoc, getDoc, setDoc, orderBy } from 'firebase/firestore';
 import { updateProfile, type User } from 'firebase/auth';
 import { type UserProfile } from './types';
 
@@ -116,4 +116,14 @@ export const getUserAvailability = async (uid: string) => {
     // Jeśli dokument nie istnieje, zwraca pustą tablicę
     return [];
   }
+};
+
+export type { UserProfile };
+export const getAllUsers = async (): Promise<UserProfile[]> => {
+  const usersRef = collection(db, 'users');
+  // ✅ Dodajemy sortowanie na poziomie zapytania do bazy danych
+  const q = query(usersRef, orderBy('displayName', 'asc'));
+  const querySnapshot = await getDocs(q);
+  // Już nie musimy sortować w komponencie Reacta
+  return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as UserProfile[];
 };

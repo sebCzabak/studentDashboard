@@ -1,5 +1,3 @@
-// Plik: src/features/user/types.ts
-
 export type DayOfWeek = 'Poniedziałek' | 'Wtorek' | 'Środa' | 'Czwartek' | 'Piątek' | 'Sobota' | 'Niedziela';
 
 // ✅ Definiujemy i eksportujemy ten typ tutaj

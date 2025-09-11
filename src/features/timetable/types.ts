@@ -1,10 +1,24 @@
-// Plik: src/features/timetable/types.ts
-
-// Ten plik powinien być JEDYNYM źródłem tych typów w projekcie.
+import type { FieldValue, Timestamp } from 'firebase/firestore';
 
 export type DayOfWeek = 'Poniedziałek' | 'Wtorek' | 'Środa' | 'Czwartek' | 'Piątek' | 'Sobota' | 'Niedziela';
 
+// ✅ Upewnij się, że ten typ jest wyeksportowany
+export interface Timetable {
+  id: string;
+  name: string;
+  status: 'draft' | 'published';
+  curriculumId: string;
+  semesterId: string;
+  groupIds: string[];
+  academicYear?: string;
+  studyMode?: 'stacjonarny' | 'zaoczne' | 'podyplomowe' | 'anglojęzyczne';
+  teachingMode?: 'stacjonarny' | 'online';
+  curriculumName?: string;
+  semesterName?: string;
+}
+
 export interface Group {
+  specializations: any;
   id: string;
   name: string;
 }
@@ -24,14 +38,6 @@ export interface AvailabilitySlot {
   day: DayOfWeek;
   startTime: string;
   endTime: string;
-}
-
-export interface UserProfile {
-  id: string;
-  displayName: string;
-  email: string;
-  role: 'student' | 'prowadzacy' | 'admin';
-  availability?: AvailabilitySlot[];
 }
 
 export interface CurriculumSubject {
@@ -59,8 +65,30 @@ export interface ScheduleEntry {
   curriculumSubjectId: string;
   groupIds: string[];
   groupNames: string[];
+  timetableId: string;
+  specificDates?: Timestamp[];
+  createdAt?: Timestamp | FieldValue;
+  lastUpdatedAt?: Timestamp | FieldValue;
 }
 
 export interface LecturerAvailability {
   [lecturerId: string]: AvailabilitySlot[];
+}
+export interface Curriculum {
+  id: string;
+  name: string;
+  academicYear: string;
+  programName: string;
+  semesters: {
+    semesterId: string;
+    semesterNumber: number;
+    subjects: any[];
+  }[];
+}
+export interface Semester {
+  id: string;
+  name: string;
+  startDate: any;
+  endDate: any;
+  type: 'stacjonarne' | 'niestacjonarne' | 'podyplomowe' | 'anglojęzyczne';
 }

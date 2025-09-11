@@ -9,10 +9,10 @@ import {
   doc,
   updateDoc,
   deleteDoc,
-  documentId,
   getDoc,
   orderBy,
   writeBatch,
+  Timestamp,
 } from 'firebase/firestore';
 import type { ScheduleEntry, Timetable } from './types';
 
@@ -31,12 +31,18 @@ export const getTimetableById = async (timetableId: string): Promise<Timetable |
   return docSnap.exists() ? ({ id: docSnap.id, ...docSnap.data() } as Timetable) : null;
 };
 
-export const createTimetable = (data: any) => {
-  const timetablesRef = collection(db, 'timetables');
-  return addDoc(timetablesRef, {
+export const createTimetable = async (data: Partial<Timetable>): Promise<void> => {
+  await addDoc(collection(db, 'timetables'), {
     ...data,
     status: 'draft',
     createdAt: serverTimestamp(),
+  });
+};
+export const updateTimetable = async (id: string, data: Partial<Timetable>) => {
+  const timetableRef = doc(db, 'timetables', id);
+  await updateDoc(timetableRef, {
+    ...data,
+    lastUpdatedAt: serverTimestamp(), // Opcjonalnie: dodajemy znacznik czasu aktualizacji
   });
 };
 
@@ -85,68 +91,80 @@ export const getScheduleEntries = async (timetableId: string): Promise<ScheduleE
   return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as ScheduleEntry[];
 };
 
-type EntryPayload = Omit<ScheduleEntry, 'id' | 'createdAt'>;
+type EntryPayload = Partial<Omit<ScheduleEntry, 'id'>>;
 
-const checkForConflicts = async (entryData: Partial<EntryPayload>, excludingId: string | null = null) => {
+const checkForConflicts = async (newEntryData: EntryPayload, excludingId: string | null = null) => {
+  if (!newEntryData.day || !newEntryData.startTime) return;
+
   const entriesRef = collection(db, 'scheduleEntries');
-  let baseQueryConditions = [
-    where('dayOfWeek', '==', entryData.dayOfWeek),
-    where('timeSlot', '==', entryData.timeSlot),
-  ];
-  if (excludingId) {
-    baseQueryConditions.unshift(where(documentId(), '!=', excludingId));
+  const q = query(entriesRef, where('day', '==', newEntryData.day), where('startTime', '==', newEntryData.startTime));
+  const querySnapshot = await getDocs(q);
+
+  const newEntryIsWeekly = !newEntryData.specificDates || newEntryData.specificDates.length === 0;
+  const newEntryDates = new Set(newEntryData.specificDates?.map((d) => d.toDate().toISOString().split('T')[0]));
+
+  for (const doc of querySnapshot.docs) {
+    if (doc.id === excludingId) continue;
+
+    const existingEntry = doc.data() as ScheduleEntry;
+    const existingEntryIsWeekly = !existingEntry.specificDates || existingEntry.specificDates.length === 0;
+
+    // Sprawdź, czy zasoby (prowadzący, sala, grupy) się pokrywają
+    const resourcesConflict =
+      existingEntry.lecturerId === newEntryData.lecturerId ||
+      existingEntry.roomId === newEntryData.roomId ||
+      (existingEntry.groupIds || []).some((g) => (newEntryData.groupIds || []).includes(g));
+
+    if (resourcesConflict) {
+      // Jeśli zasoby się pokrywają, sprawdź daty
+      if (newEntryIsWeekly || existingEntryIsWeekly) {
+        // Jeśli którekolwiek zajęcia są cykliczne, zawsze jest to kolizja
+        throw new Error(`Wystąpiła kolizja z zajęciami cyklicznymi w tym terminie.`);
+      } else {
+        // Jeśli oba mają konkretne daty, sprawdź, czy daty się pokrywają
+        const datesConflict = (existingEntry.specificDates || []).some((ts) =>
+          newEntryDates.has(ts.toDate().toISOString().split('T')[0])
+        );
+        if (datesConflict) {
+          throw new Error(`Wystąpiła kolizja terminów w jednej z wybranych dat.`);
+        }
+      }
+    }
   }
-
-  // Sprawdzanie konfliktów dla prowadzącego i sali (bez zmian)
-  const lecturerConflictQuery = query(
-    entriesRef,
-    ...baseQueryConditions,
-    where('lecturerId', '==', entryData.lecturerId)
-  );
-  const roomConflictQuery = query(entriesRef, ...baseQueryConditions, where('roomId', '==', entryData.roomId));
-
-  // NOWA, MĄDRZEJSZA WALIDACJA GRUP
-  // Sprawdź, czy którakolwiek z grup w `entryData.groupIds` ma już zajęcia w tym czasie
-  const groupConflictQuery = query(
-    entriesRef,
-    ...baseQueryConditions,
-    where('groupIds', 'array-contains-any', entryData.groupIds)
-  );
-
-  const [lecturerConflict, groupConflict, roomConflict] = await Promise.all([
-    getDocs(lecturerConflictQuery),
-    getDocs(groupConflictQuery),
-    getDocs(roomConflictQuery),
-  ]);
-
-  if (!lecturerConflict.empty) throw new Error(`Prowadzący jest już zajęty w tym terminie.`);
-  if (!groupConflict.empty)
-    throw new Error(`Co najmniej jedna z wybranych grup/specjalizacji ma już inne zajęcia w tym terminie.`);
-  if (!roomConflict.empty) throw new Error(`Sala jest już zajęta w tym terminie.`);
 };
 
-export const createScheduleEntry = async (entryData: EntryPayload) => {
+export const createScheduleEntry = async (entryData: Omit<ScheduleEntry, 'id'>) => {
   await checkForConflicts(entryData);
   return addDoc(collection(db, 'scheduleEntries'), { ...entryData, createdAt: serverTimestamp() });
 };
 
-export const updateScheduleEntry = async (entryId: string, entryData: Partial<EntryPayload>) => {
-  await checkForConflicts(entryData, entryId);
-  return updateDoc(doc(db, 'scheduleEntries', entryId), { ...entryData, lastUpdatedAt: serverTimestamp() });
+export const updateScheduleEntryService = async (entryId: string, updatedData: Partial<ScheduleEntry>) => {
+  const entryRef = doc(db, 'scheduleEntries', entryId);
+  const docSnap = await getDoc(entryRef);
+  if (!docSnap.exists()) throw new Error('Nie znaleziono wpisu o podanym ID.');
+
+  const dataToValidateAndSave = { ...docSnap.data(), ...updatedData };
+
+  await checkForConflicts(dataToValidateAndSave, entryId);
+
+  if (dataToValidateAndSave.specificDates && Array.isArray(dataToValidateAndSave.specificDates)) {
+    dataToValidateAndSave.specificDates = dataToValidateAndSave.specificDates.map((date) =>
+      date instanceof Date ? Timestamp.fromDate(date) : date
+    );
+  }
+  dataToValidateAndSave.lastUpdatedAt = serverTimestamp();
+
+  return updateDoc(entryRef, dataToValidateAndSave);
 };
 
 export const deleteScheduleEntry = (entryId: string) => {
   return deleteDoc(doc(db, 'scheduleEntries', entryId));
 };
-/**
- * Pobiera wszystkie istniejące wpisy w planie dla danego prowadzącego.
- */
+
 export const getEntriesForLecturer = async (lecturerId: string) => {
   if (!lecturerId) return [];
-
   const entriesRef = collection(db, 'scheduleEntries');
   const q = query(entriesRef, where('lecturerId', '==', lecturerId));
   const querySnapshot = await getDocs(q);
-
   return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as ScheduleEntry[];
 };

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -10,98 +10,85 @@ import {
   Select,
   MenuItem,
   Stack,
+  Divider,
   Typography,
   Box,
-  type SelectChangeEvent,
   OutlinedInput,
   Chip,
+  type SelectChangeEvent,
+  CircularProgress,
 } from '@mui/material';
-import { type ScheduleEntry } from '../types';
-import toast from 'react-hot-toast';
+import DatePicker, { DateObject } from 'react-multi-date-picker';
+import 'react-multi-date-picker/styles/layouts/mobile.css';
+import { Timestamp } from 'firebase/firestore';
+import type { ScheduleEntry, Group, Room, CurriculumSubject } from '../../../features/timetable/types';
 
 interface ScheduleEntryFormModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (entryData: Omit<ScheduleEntry, 'id' | 'createdAt' | 'timetableId'>) => Promise<void>;
-  onDelete: () => Promise<void>;
-  initialData: any | null;
-  availableSubjects: any[];
-  availableGroups: any[];
-  availableRooms: any[];
-  lecturersMap: Record<string, string>;
-  subjectsMap: Record<string, string>;
+  onSave: (data: Partial<ScheduleEntry>) => Promise<void>;
+  onDelete?: () => Promise<void>; // Opcjonalne dla trybu tworzenia
+  initialData: Partial<ScheduleEntry> & { subject?: CurriculumSubject }; // Typ uniwersalny
+  availableGroups: Group[];
+  availableRooms: Room[];
 }
 
-export const ScheduleEntryFormModal = ({
+export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
   open,
   onClose,
   onSave,
   onDelete,
   initialData,
-  availableSubjects,
   availableGroups,
   availableRooms,
-  lecturersMap,
-  subjectsMap,
-}: ScheduleEntryFormModalProps) => {
-  const [selectedSubjectId, setSelectedSubjectId] = useState('');
-  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
-  const [selectedRoomId, setSelectedRoomId] = useState('');
+}) => {
+  const [groupIds, setGroupIds] = useState<string[]>([]);
+  const [roomId, setRoomId] = useState('');
+  const [dates, setDates] = useState<DateObject[]>([]);
   const [loading, setLoading] = useState(false);
 
+  const isEditMode = !!initialData.id;
+
   useEffect(() => {
-    if (initialData?.id) {
-      // Tryb edycji
-      setSelectedSubjectId(initialData.subjectId || '');
-      setSelectedGroupIds(initialData.groupIds || []);
-      setSelectedRoomId(initialData.roomId || '');
-    } else {
-      // Tryb tworzenia
-      setSelectedSubjectId('');
-      setSelectedGroupIds([]);
-      setSelectedRoomId('');
+    if (initialData) {
+      setGroupIds(initialData.groupIds || []);
+      setRoomId(initialData.roomId || '');
+      if (initialData.specificDates && Array.isArray(initialData.specificDates)) {
+        setDates(initialData.specificDates.map((ts) => new DateObject(ts.toDate())));
+      } else {
+        setDates([]);
+      }
     }
-  }, [initialData, open]);
+  }, [initialData]);
 
   const handleSave = async () => {
-    const subjectDetails = (availableSubjects || []).find((s: any) => s.subjectId === selectedSubjectId);
-    if (!subjectDetails || selectedGroupIds.length === 0 || !selectedRoomId) {
-      return toast.error('Proszę wypełnić wszystkie pola.');
-    }
-
     setLoading(true);
-    const entryData = {
-      subjectId: selectedSubjectId,
-      lecturerId: subjectDetails.lecturerId,
-      type: subjectDetails.type,
-      groupIds: selectedGroupIds,
-      roomId: selectedRoomId,
-      dayOfWeek: initialData.dayOfWeek,
-      timeSlot: initialData.timeSlot,
+    const dataToSave: Partial<ScheduleEntry> = {
+      groupIds,
+      roomId,
+      groupNames: groupIds.map((id) => availableGroups.find((g) => g.id === id)?.name || ''),
+      roomName: availableRooms.find((r) => r.id === roomId)?.name || '',
+      specificDates: dates.map((d) => Timestamp.fromDate(d.toDate())),
     };
-    try {
-      await onSave(entryData);
-      onClose();
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  const handleDelete = async () => {
-    setLoading(true);
-    try {
-      await onDelete();
-      onClose();
-    } finally {
-      setLoading(false);
+    // Jeśli tworzymy nowy wpis, dodajemy dane z przeciągniętego "klocka"
+    if (!isEditMode && initialData.subject) {
+      Object.assign(dataToSave, {
+        day: initialData.day,
+        startTime: initialData.startTime,
+        endTime: initialData.endTime,
+        subjectId: initialData.subject.subjectId,
+        subjectName: initialData.subject.subjectName,
+        lecturerId: initialData.subject.lecturerId,
+        lecturerName: initialData.subject.lecturerName,
+        type: initialData.subject.type,
+        curriculumSubjectId: initialData.subject.id,
+        timetableId: initialData.timetableId,
+      });
     }
-  };
 
-  const handleGroupChange = (event: SelectChangeEvent<typeof selectedGroupIds>) => {
-    const {
-      target: { value },
-    } = event;
-    setSelectedGroupIds(typeof value === 'string' ? value.split(',') : value);
+    await onSave(dataToSave);
+    setLoading(false);
   };
 
   return (
@@ -111,104 +98,116 @@ export const ScheduleEntryFormModal = ({
       fullWidth
       maxWidth="sm"
     >
-      <DialogTitle>{initialData?.id ? 'Edytuj Zajęcia' : 'Dodaj Nowe Zajęcia'}</DialogTitle>
+      <DialogTitle>{isEditMode ? 'Edytuj Zajęcia' : 'Dodaj Nowe Zajęcia'}</DialogTitle>
       <DialogContent>
-        <Typography
-          variant="h6"
-          gutterBottom
-        >
-          {initialData?.dayOfWeek}, {initialData?.timeSlot}
-        </Typography>
         <Stack
           spacing={2}
           sx={{ pt: 2 }}
         >
-          <FormControl fullWidth>
-            <InputLabel>Przedmiot / Prowadzący</InputLabel>
-            <Select
-              value={selectedSubjectId}
-              label="Przedmiot / Prowadzący"
-              onChange={(e: SelectChangeEvent) => setSelectedSubjectId(e.target.value)}
-            >
-              {(availableSubjects || []).map((s: any, i: number) => (
-                <MenuItem
-                  key={`${s.subjectId}-${i}`}
-                  value={s.subjectId}
-                >
-                  {subjectsMap[s.subjectId]} ({s.type}) - {lecturersMap[s.lecturerId]}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
-
-          <FormControl fullWidth>
+          <Typography variant="h6">{initialData.subjectName || initialData.subject?.subjectName}</Typography>
+          <Typography
+            variant="body2"
+            color="text.secondary"
+          >
+            Prowadzący: {initialData.lecturerName || initialData.subject?.lecturerName}
+          </Typography>
+          <Typography
+            variant="body2"
+            color="text.secondary"
+          >
+            Termin: {initialData.day}, {initialData.startTime}
+          </Typography>
+          <Divider sx={{ my: 1 }} />
+          <FormControl
+            fullWidth
+            required
+          >
             <InputLabel>Grupy Studenckie</InputLabel>
-            <Select
+            <Select<string[]>
               multiple
-              value={selectedGroupIds}
-              onChange={handleGroupChange} // Używamy naszej nowej, dedykowanej funkcji
+              value={groupIds}
+              onChange={(e: SelectChangeEvent<string[]>) => setGroupIds(e.target.value as string[])}
               input={<OutlinedInput label="Grupy Studenckie" />}
               renderValue={(selected) => (
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {selected.map((value) => (
+                  {selected.map((id) => (
                     <Chip
-                      key={value}
-                      label={availableGroups.find((g: any) => g.id === value)?.name || value}
+                      key={id}
+                      label={availableGroups.find((g) => g.id === id)?.name || id}
                     />
                   ))}
                 </Box>
               )}
             >
-              {(availableGroups || []).map((g: any) => (
+              {availableGroups.map((group) => (
                 <MenuItem
-                  key={g.id}
-                  value={g.id}
+                  key={group.id}
+                  value={group.id}
                 >
-                  {g.name}
+                  {group.name}
                 </MenuItem>
               ))}
             </Select>
           </FormControl>
-
-          <FormControl fullWidth>
+          <FormControl
+            fullWidth
+            required
+          >
             <InputLabel>Sala</InputLabel>
             <Select
-              value={selectedRoomId}
+              value={roomId}
               label="Sala"
-              onChange={(e: SelectChangeEvent) => setSelectedRoomId(e.target.value)}
+              onChange={(e) => setRoomId(e.target.value)}
             >
-              {(availableRooms || []).map((r: any) => (
+              {availableRooms.map((room) => (
                 <MenuItem
-                  key={r.id}
-                  value={r.id}
+                  key={room.id}
+                  value={room.id}
                 >
-                  {r.name}
+                  {room.name}
                 </MenuItem>
               ))}
             </Select>
           </FormControl>
+          <Divider sx={{ my: 2 }} />
+          <Typography
+            variant="h6"
+            gutterBottom
+          >
+            Konkretne terminy zajęć (opcjonalnie)
+          </Typography>
+          <DatePicker
+            multiple
+            value={dates}
+            onChange={setDates}
+            format="DD/MM/YYYY"
+            containerClassName="rmdp-mobile"
+            style={{ width: '100%' }}
+          />
         </Stack>
       </DialogContent>
-      <DialogActions sx={{ justifyContent: 'space-between', px: 3, pb: 2 }}>
-        {initialData?.id ? (
+      <DialogActions sx={{ justifyContent: 'space-between', p: '16px 24px' }}>
+        <Button
+          onClick={onDelete}
+          color="error"
+          variant="outlined"
+          disabled={!isEditMode || loading}
+        >
+          Usuń Zajęcia
+        </Button>
+        <Box>
           <Button
-            onClick={handleDelete}
-            color="error"
+            onClick={onClose}
             disabled={loading}
           >
-            Usuń
+            Anuluj
           </Button>
-        ) : (
-          <Box />
-        )}
-        <Box>
-          <Button onClick={onClose}>Anuluj</Button>
           <Button
             onClick={handleSave}
             variant="contained"
             disabled={loading}
           >
-            {loading ? 'Zapisywanie...' : 'Zapisz'}
+            {loading ? <CircularProgress size={24} /> : isEditMode ? 'Zapisz zmiany' : 'Dodaj Zajęcia'}
           </Button>
         </Box>
       </DialogActions>

@@ -11,7 +11,6 @@ import {
   deleteDoc,
   serverTimestamp,
   getDoc,
-  setDoc,
 } from 'firebase/firestore';
 import { type Curriculum } from './types';
 
@@ -19,11 +18,7 @@ export const getCurriculums = async (): Promise<Curriculum[]> => {
   const curriculumsRef = collection(db, 'curriculums');
   const q = query(curriculumsRef, orderBy('academicYear', 'desc'));
   const querySnapshot = await getDocs(q);
-
-  return querySnapshot.docs.map((doc: DocumentData) => ({
-    id: doc.id,
-    ...doc.data(),
-  })) as Curriculum[];
+  return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as Curriculum[];
 };
 
 export const getAllSubjects = async () => {

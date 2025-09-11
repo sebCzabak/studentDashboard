@@ -39,13 +39,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        // Poprawka: Najpierw pobieramy dokument użytkownika z Firestore
         const userDocRef = doc(db, 'users', firebaseUser.uid);
         const userDoc = await getDoc(userDocRef);
 
-        const tokenResult = await firebaseUser.getIdTokenResult();
+        const tokenResult = await firebaseUser.getIdTokenResult(true);
         const userRole = (tokenResult.claims.role as string) || 'student';
-        // Poprawka: Odczytujemy uprawnienia z pobranego dokumentu
         const userPermissions = userDoc.exists() ? userDoc.data().managedApplicationTypes || [] : [];
         const storedToken = sessionStorage.getItem(ACCESS_TOKEN_KEY);
 

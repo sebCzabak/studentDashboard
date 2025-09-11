@@ -32,6 +32,7 @@ import HowToRegIcon from '@mui/icons-material/HowToReg';
 import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
 import EventNoteIcon from '@mui/icons-material/EventNote';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
+import AccountBoxIcon from '@mui/icons-material/AccountBox';
 
 // Definicja kafelków z przypisanymi rolami
 const allAdminTiles = [
@@ -135,6 +136,14 @@ const allAdminTiles = [
     description: 'Twórz i edytuj katedry i stopnie.',
     icon: <MenuBookIcon sx={{ fontSize: 40 }} />,
     path: '/admin/dictionaries',
+    section: 'Konfiguracja',
+    allowedRoles: ['admin'],
+  },
+  {
+    title: 'Zarządzaj użytkownikami',
+    description: 'Dodawanie użytkowników, dyspozycyjność.',
+    icon: <AccountBoxIcon sx={{ fontSize: 40 }} />,
+    path: '/admin/users',
     section: 'Konfiguracja',
     allowedRoles: ['admin'],
   },

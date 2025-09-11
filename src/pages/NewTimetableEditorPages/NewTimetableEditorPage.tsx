@@ -1,29 +1,29 @@
 import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Link as RouterLink } from 'react-router-dom';
 import { DndContext, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
 import { Grid, Box, CircularProgress, Typography, Button, Alert, AlertTitle } from '@mui/material';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import toast from 'react-hot-toast';
-import { getDocs, collection, query, where } from 'firebase/firestore';
-import { db } from '../../config/firebase';
+import { useTimetableData } from './hooks/useTimetableData';
 import { getEntriesForLecturer } from '../../features/timetable/scheduleService';
 import { UnscheduledClassesPanel } from './UnscheduledClassesPanel';
 import { TimetableGrid } from './TimetableGrid';
 import { DropConfirmationModal } from './DropConfirmationModal';
-import { useTimetableData } from './hooks/useTimetableData';
+import { ScheduleEntryFormModal } from '../../features/timetable/components/ScheduleEntryFormModal';
 import type { CurriculumSubject, ScheduleEntry, DayOfWeek } from '../../features/timetable/types';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import { Link as RouterLink } from 'react-router-dom';
 
 const getEndTime = (startTime: string): string => {
+  const durationInMinutes = 90;
   const [hours, minutes] = startTime.split(':').map(Number);
   const date = new Date();
   date.setHours(hours, minutes, 0, 0);
-  date.setMinutes(date.getMinutes() + 90);
+  date.setMinutes(date.getMinutes() + durationInMinutes);
   return date.toTimeString().slice(0, 5);
 };
 
 export const NewTimetableEditorPage = () => {
   const { timetableId } = useParams<{ timetableId: string }>();
+  // ✅ Pobieramy funkcje do modyfikacji danych z naszego hooka
   const {
     timetable,
     curriculumSubjects,
@@ -32,32 +32,32 @@ export const NewTimetableEditorPage = () => {
     rooms,
     lecturerAvailability,
     loading,
+    error,
     addScheduleEntry,
     updateScheduleEntry,
     deleteScheduleEntry,
-    error,
   } = useTimetableData(timetableId);
-  const isPublished = timetable?.status === 'published';
+
   const [activeLecturerId, setActiveLecturerId] = useState<string | null>(null);
-  const [modalState, setModalState] = useState<{
-    mode: 'new' | 'edit';
-    data: ScheduleEntry | { subject: CurriculumSubject; day: DayOfWeek; time: string };
-  } | null>(null);
   const [conflictingEntries, setConflictingEntries] = useState<ScheduleEntry[]>([]);
+
+  // ✅ Używamy dwóch oddzielnych, jasnych stanów: jeden dla tworzenia, drugi dla edycji
+  const [dropData, setDropData] = useState<{ subject: CurriculumSubject; day: DayOfWeek; time: string } | null>(null);
+  const [editData, setEditData] = useState<ScheduleEntry | null>(null);
+
+  const isPublished = timetable?.status === 'published';
+  const studyMode = timetable?.studyMode || 'stacjonarny';
 
   const handleDragStart = async (event: DragStartEvent) => {
     if (isPublished) return;
     const { active } = event;
     let lecturerId: string | null = null;
-
     if (active.data.current?.type === 'new-subject') {
       lecturerId = active.data.current?.subject?.lecturerId;
     } else if (active.data.current?.type === 'existing-entry') {
       lecturerId = active.data.current?.entry?.lecturerId;
     }
-
     setActiveLecturerId(lecturerId);
-
     if (lecturerId) {
       try {
         const conflicts = await getEntriesForLecturer(lecturerId);
@@ -73,16 +73,14 @@ export const NewTimetableEditorPage = () => {
     const { active, over } = event;
     setActiveLecturerId(null);
     setConflictingEntries([]);
-
     if (!over) return;
-
     const [day, time] = over.id.toString().split('-') as [DayOfWeek, string];
     const activeDataType = active.data.current?.type;
 
     if (activeDataType === 'new-subject') {
       const subject = active.data.current?.subject as CurriculumSubject;
       if (day && time && subject) {
-        setModalState({ mode: 'new', data: { subject, day, time } });
+        setDropData({ subject, day, time });
       }
     }
 
@@ -90,37 +88,7 @@ export const NewTimetableEditorPage = () => {
       const entryToMove = active.data.current?.entry as ScheduleEntry;
       if (entryToMove.day === day && entryToMove.startTime === time) return;
 
-      const promise = new Promise<void>(async (resolve, reject) => {
-        try {
-          const entriesRef = collection(db, 'scheduleEntries');
-          const q = query(entriesRef, where('day', '==', day), where('startTime', '==', time));
-          const querySnapshot = await getDocs(q);
-
-          for (const doc of querySnapshot.docs) {
-            if (doc.id === entryToMove.id) continue;
-            const existingEntry = doc.data() as ScheduleEntry;
-            if (existingEntry.lecturerId === entryToMove.lecturerId) {
-              reject(new Error(`Prowadzący ${existingEntry.lecturerName} jest już zajęty.`));
-              return;
-            }
-            if (existingEntry.roomId === entryToMove.roomId) {
-              reject(new Error(`Sala ${existingEntry.roomName} jest już zajęta.`));
-              return;
-            }
-            const conflictingGroup = groups.find(
-              (g) => entryToMove.groupIds.includes(g.id) && existingEntry.groupIds.includes(g.id)
-            );
-            if (conflictingGroup) {
-              reject(new Error(`Grupa ${conflictingGroup.name} ma już inne zajęcia.`));
-              return;
-            }
-          }
-          await updateScheduleEntry(entryToMove.id, { day, startTime: time, endTime: getEndTime(time) });
-          resolve();
-        } catch (e) {
-          reject(e);
-        }
-      });
+      const promise = updateScheduleEntry(entryToMove.id, { day, startTime: time, endTime: getEndTime(time) });
 
       toast.promise(promise, {
         loading: 'Przenoszenie zajęć...',
@@ -130,101 +98,72 @@ export const NewTimetableEditorPage = () => {
     }
   };
 
-  const handleEntryClick = (entry: ScheduleEntry) => {
-    setModalState({ mode: 'edit', data: entry });
+  const handleOpenEditModal = (entry: ScheduleEntry) => {
+    if (isPublished) return;
+    setEditData(entry);
   };
 
-  const handleModalSubmit = async (details: { groupIds: string[]; roomId: string }) => {
-    if (!modalState) return;
+  const handleCloseModals = () => {
+    setDropData(null);
+    setEditData(null);
+  };
 
+  const handleConfirmDrop = async (details: { groupIds: string[]; roomId: string }) => {
+    if (!dropData || !timetableId) return;
+    const { subject, day, time } = dropData;
     const selectedGroups = groups.filter((g) => details.groupIds.includes(g.id));
     const room = rooms.find((r) => r.id === details.roomId);
 
-    if (selectedGroups.length === 0 || !room) {
-      toast.error('Proszę wybrać przynajmniej jedną grupę i salę.');
+    if (!selectedGroups.length || !room) {
+      toast.error('Błąd danych.');
       return;
     }
 
-    const promise = new Promise<void>(async (resolve, reject) => {
-      try {
-        if (modalState.mode === 'new') {
-          const { subject, day, time } = modalState.data as {
-            subject: CurriculumSubject;
-            day: DayOfWeek;
-            time: string;
-          };
+    const newEntryData = {
+      timetableId,
+      subjectId: subject.subjectId,
+      lecturerId: subject.lecturerId,
+      type: subject.type,
+      groupIds: details.groupIds,
+      roomId: details.roomId,
+      day,
+      startTime: time,
+      endTime: getEndTime(time),
+      subjectName: subject.subjectName,
+      lecturerName: subject.lecturerName,
+      groupNames: selectedGroups.map((g) => g.name),
+      roomName: room.name,
+      curriculumSubjectId: subject.id,
+    };
 
-          if (!subject.lecturerId || subject.lecturerId === 'Brak ID') {
-            return reject(new Error('Przedmiotowi nie przypisano prowadzącego.'));
-          }
-
-          const entriesRef = collection(db, 'scheduleEntries');
-          const q = query(entriesRef, where('day', '==', day), where('startTime', '==', time));
-          const querySnapshot = await getDocs(q);
-
-          for (const doc of querySnapshot.docs) {
-            const entry = doc.data() as ScheduleEntry;
-            if (entry.lecturerId === subject.lecturerId)
-              return reject(new Error(`Prowadzący ${subject.lecturerName} jest już zajęty.`));
-            if (entry.roomId === room.id) return reject(new Error(`Sala ${room.name} jest już zajęta.`));
-            const conflictingGroup = selectedGroups.find((g) => entry.groupIds?.includes(g.id));
-            if (conflictingGroup) return reject(new Error(`Grupa ${conflictingGroup.name} ma już inne zajęcia.`));
-          }
-
-          const newEntry = {
-            day,
-            startTime: time,
-            endTime: getEndTime(time),
-            subjectId: subject.subjectId,
-            subjectName: subject.subjectName,
-            lecturerId: subject.lecturerId,
-            lecturerName: subject.lecturerName,
-            type: subject.type,
-            groupIds: selectedGroups.map((g) => g.id),
-            groupNames: selectedGroups.map((g) => g.name),
-            roomId: room.id,
-            roomName: room.name,
-            curriculumSubjectId: subject.id,
-          };
-          await addScheduleEntry(newEntry);
-        } else {
-          // tryb 'edit'
-          const entryToUpdate = modalState.data as ScheduleEntry;
-          // Tutaj również można dodać sprawdzanie kolizji dla edycji
-          await updateScheduleEntry(entryToUpdate.id, {
-            groupIds: selectedGroups.map((g) => g.id),
-            groupNames: selectedGroups.map((g) => g.name),
-            roomId: room.id,
-            roomName: room.name,
-          });
-        }
-        resolve();
-      } catch (error) {
-        reject(error);
-      }
-    });
-
-    toast.promise(promise, {
+    await toast.promise(addScheduleEntry(newEntryData as Omit<ScheduleEntry, 'id'>), {
       loading: 'Zapisywanie...',
-      success: modalState.mode === 'new' ? 'Dodano nowe zajęcia!' : 'Zajęcia zostały zaktualizowane!',
-      error: (err) => `Błąd zapisu: ${err.message.includes('permission-denied') ? 'Brak uprawnień.' : err.message}`,
+      success: 'Zajęcia dodane!',
+      error: (err) => err.message,
     });
 
-    setModalState(null);
+    handleCloseModals();
   };
 
-  const handleModalDelete = async () => {
-    if (modalState && modalState.mode === 'edit') {
-      const entryId = (modalState.data as ScheduleEntry).id;
-      const promise = deleteScheduleEntry(entryId);
+  const handleSaveEdit = async (entryData: Partial<ScheduleEntry>) => {
+    if (!editData?.id) return;
+    await toast.promise(updateScheduleEntry(editData.id, entryData), {
+      loading: 'Aktualizowanie zajęć...',
+      success: 'Zmiany zapisane!',
+      error: (err) => err.message,
+    });
+    handleCloseModals();
+  };
 
-      toast.promise(promise, {
-        loading: 'Usuwanie zajęć...',
-        success: 'Usunięto zajęcia z planu.',
-        error: 'Wystąpił błąd podczas usuwania.',
+  const handleDeleteEntry = async () => {
+    if (!editData?.id) return;
+    if (window.confirm('Czy na pewno chcesz usunąć te zajęcia?')) {
+      await toast.promise(deleteScheduleEntry(editData.id), {
+        loading: 'Usuwanie...',
+        success: 'Zajęcia usunięte.',
+        error: (err) => err.message,
       });
-
-      setModalState(null);
+      handleCloseModals();
     }
   };
 
@@ -232,7 +171,7 @@ export const NewTimetableEditorPage = () => {
     return (
       <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '80vh' }}>
         <CircularProgress />
-        <Typography sx={{ ml: 2 }}>Wczytywanie...</Typography>
+        <Typography sx={{ ml: 2 }}>Wczytywanie edytora...</Typography>
       </Box>
     );
   }
@@ -257,28 +196,33 @@ export const NewTimetableEditorPage = () => {
       onDragEnd={handleDragEnd}
     >
       <Box sx={{ p: 3, flexGrow: 1 }}>
-        <Button
-          component={RouterLink}
-          to="/admin/TimetableList"
-          startIcon={<ArrowBackIcon />}
-          sx={{ mb: 2 }}
-        >
-          Wróć do listy planów
-        </Button>
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Button
+            component={RouterLink}
+            to="/admin/TimetableList"
+            startIcon={<ArrowBackIcon />}
+          >
+            Wróć do listy planów
+          </Button>
+          <Typography variant="h5">{timetable?.name}</Typography>
+        </Box>
+
         {isPublished && (
           <Alert
             severity="warning"
-            sx={{ mt: 2 }}
+            sx={{ my: 2 }}
           >
             <AlertTitle>Plan jest opublikowany</AlertTitle>
-            Ten plan został opublikowany i jest widoczny dla studentów. Edycja jest zablokowana. Aby wprowadzić zmiany,
-            zmień jego status na "roboczy" w liście planów.
+            Edycja jest zablokowana. Aby wprowadzić zmiany, zmień status planu na "roboczy".
           </Alert>
         )}
+
         <Grid
           container
           spacing={2}
+          sx={{ mt: 0.5 }}
         >
+          {/* ✅ POPRAWKA: Używamy poprawnych propsów `item` i `xs`/`md` */}
           <Grid size={{ xs: 12, md: 3 }}>
             <UnscheduledClassesPanel
               subjects={curriculumSubjects}
@@ -292,20 +236,33 @@ export const NewTimetableEditorPage = () => {
               activeLecturerId={activeLecturerId}
               lecturerAvailability={lecturerAvailability}
               conflictingEntries={conflictingEntries}
-              onEntryClick={handleEntryClick}
+              onEntryClick={handleOpenEditModal}
               isReadOnly={isPublished}
+              studyMode={studyMode}
+              teachingMode={'stacjonarny'}
             />
           </Grid>
         </Grid>
       </Box>
 
-      {modalState && (
+      {dropData && (
         <DropConfirmationModal
-          open={!!modalState}
-          onClose={() => setModalState(null)}
-          onSubmit={handleModalSubmit}
-          onDelete={modalState.mode === 'edit' ? handleModalDelete : undefined}
-          initialData={modalState.data}
+          open={!!dropData}
+          onClose={handleCloseModals}
+          onSubmit={handleConfirmDrop}
+          initialData={dropData}
+          availableGroups={groups}
+          availableRooms={rooms}
+        />
+      )}
+
+      {editData && (
+        <ScheduleEntryFormModal
+          open={!!editData}
+          onClose={handleCloseModals}
+          onSave={handleSaveEdit}
+          onDelete={handleDeleteEntry}
+          initialData={editData}
           availableGroups={groups}
           availableRooms={rooms}
         />

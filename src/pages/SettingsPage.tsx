@@ -34,7 +34,7 @@ interface TimeSlot {
   endTime: string;
 }
 // ✅ Używamy centralnego typu DayOfWeek
-interface AvailabilitySlot {
+export interface AvailabilitySlot {
   day: DayOfWeek;
   startTime: string;
   endTime: string;
@@ -51,7 +51,7 @@ const timeSlots: TimeSlot[] = [
 // ✅ Definiujemy stałą z typem DayOfWeek[], aby zapewnić spójność
 const daysOfWeek: DayOfWeek[] = ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek', 'Sobota', 'Niedziela'];
 
-const AvailabilityPanel = ({
+export const AvailabilityPanel = ({
   userProfile,
   initialAvailability,
 }: {

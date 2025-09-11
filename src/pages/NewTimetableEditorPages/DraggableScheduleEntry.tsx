@@ -1,7 +1,10 @@
+// src/pages/TimetableEditorPage/DraggableScheduleEntry.tsx
+
 import React from 'react';
 import { useDraggable } from '@dnd-kit/core';
-import { Paper, Typography, Box, IconButton } from '@mui/material';
+import { Paper, Typography, Box, IconButton, Tooltip } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
+import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
 import { type ScheduleEntry } from '../../features/timetable/types';
 
 interface DraggableScheduleEntryProps {
@@ -13,24 +16,25 @@ interface DraggableScheduleEntryProps {
 export const DraggableScheduleEntry: React.FC<DraggableScheduleEntryProps> = ({ entry, onClick, isReadOnly }) => {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id: entry.id,
-    data: {
-      type: 'existing-entry',
-      entry: entry,
-      disabled: isReadOnly,
-    },
+    data: { type: 'existing-entry', entry: entry },
+    disabled: isReadOnly,
   });
 
   const style = transform
     ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 999 }
     : undefined;
 
-  const handleEditClick = () => {
+  const handleEditClick = (event: React.MouseEvent) => {
+    event.stopPropagation();
     onClick(entry);
   };
 
   const handlePointerDown = (event: React.PointerEvent) => {
     event.stopPropagation();
   };
+
+  // ✅ Tworzymy listę dat do wyświetlenia w tooltipie
+  const datesTooltip = entry.specificDates?.map((ts) => ts.toDate().toLocaleDateString('pl-PL')).join('\n');
 
   return (
     <Paper
@@ -41,38 +45,48 @@ export const DraggableScheduleEntry: React.FC<DraggableScheduleEntryProps> = ({ 
       elevation={2}
       sx={{
         position: 'relative',
-        p: 0.5,
-        mb: 0.5,
-        backgroundColor: 'secondary.main',
-        color: 'secondary.contrastText',
-        cursor: 'grab',
-        '&:hover': {
-          backgroundColor: 'secondary.dark',
-          '& .edit-icon': { opacity: 1 },
-        },
+        p: 1,
+        my: 0.5,
+        textAlign: 'left',
+        backgroundColor: 'primary.light',
+        color: 'primary.contrastText',
+        cursor: isReadOnly ? 'not-allowed' : 'grab',
+        '&:hover': { backgroundColor: 'primary.dark', '& .edit-icon': { opacity: 1 } },
       }}
     >
       <Box>
         <Typography
-          variant="caption"
-          display="block"
+          variant="body2"
           fontWeight="bold"
         >
-          {entry.subjectName} ({entry.type.slice(0, 1)})
+          {entry.subjectName}
         </Typography>
+        <Typography variant="caption">{entry.lecturerName}</Typography>
+        <br />
         <Typography
           variant="caption"
-          display="block"
+          color="inherit"
         >
-          {entry.lecturerName.split(' ').pop()}
+          {(entry.groupNames || []).join(', ')}
         </Typography>
+        <br />
         <Typography
           variant="caption"
-          display="block"
+          color="inherit"
         >
-          {entry.groupNames.join(', ')} / {entry.roomName}
+          Sala: {entry.roomName}
         </Typography>
       </Box>
+
+      {/* ✅ Wyświetlamy ikonkę kalendarza, jeśli są zdefiniowane konkretne daty */}
+      {entry.specificDates && entry.specificDates.length > 0 && (
+        <Tooltip title={<div style={{ whiteSpace: 'pre-line' }}>{datesTooltip}</div>}>
+          <CalendarTodayIcon
+            sx={{ position: 'absolute', bottom: 4, right: 4, fontSize: '1rem', color: 'rgba(255, 255, 255, 0.7)' }}
+          />
+        </Tooltip>
+      )}
+
       {!isReadOnly && (
         <IconButton
           className="edit-icon"
@@ -83,13 +97,11 @@ export const DraggableScheduleEntry: React.FC<DraggableScheduleEntryProps> = ({ 
             position: 'absolute',
             top: 0,
             right: 0,
-            color: 'secondary.contrastText',
+            color: 'primary.contrastText',
             backgroundColor: 'rgba(0,0,0,0.2)',
             opacity: 0,
             transition: 'opacity 0.2s',
-            '&:hover': {
-              backgroundColor: 'rgba(0,0,0,0.4)',
-            },
+            '&:hover': { backgroundColor: 'rgba(0,0,0,0.4)' },
           }}
         >
           <EditIcon sx={{ fontSize: '1rem' }} />
