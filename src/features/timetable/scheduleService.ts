@@ -168,3 +168,51 @@ export const getEntriesForLecturer = async (lecturerId: string) => {
   const querySnapshot = await getDocs(q);
   return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as ScheduleEntry[];
 };
+export const copyTimetable = async (sourceTimetableId: string, newTimetableName: string) => {
+  console.log(`[copyTimetable] Rozpoczynam kopiowanie planu o ID: ${sourceTimetableId}`);
+
+  if (!sourceTimetableId || !newTimetableName) {
+    throw new Error('Brak ID źródłowego planu lub nowej nazwy.');
+  }
+
+  const batch = writeBatch(db);
+  const timetablesRef = collection(db, 'timetables');
+  const entriesRef = collection(db, 'scheduleEntries');
+
+  const sourceTimetableRef = doc(timetablesRef, sourceTimetableId);
+  const sourceTimetableSnap = await getDoc(sourceTimetableRef);
+  if (!sourceTimetableSnap.exists()) {
+    throw new Error('Oryginalny plan do skopiowania nie istnieje.');
+  }
+
+  const sourceData = sourceTimetableSnap.data();
+  const newTimetableData = {
+    ...sourceData,
+    name: newTimetableName,
+    status: 'draft',
+    createdAt: serverTimestamp(),
+  };
+
+  const newTimetableRef = doc(timetablesRef);
+  batch.set(newTimetableRef, newTimetableData);
+  console.log(`[copyTimetable] Przygotowano nowy plan o ID: ${newTimetableRef.id}`);
+
+  // Pobierz wszystkie zajęcia ze starego planu
+  const sourceEntriesQuery = query(entriesRef, where('timetableId', '==', sourceTimetableId));
+  const sourceEntriesSnap = await getDocs(sourceEntriesQuery);
+
+  console.log(`[copyTimetable] Znaleziono ${sourceEntriesSnap.size} zajęć do skopiowania.`);
+
+  sourceEntriesSnap.forEach((entryDoc) => {
+    const sourceEntryData = entryDoc.data();
+    const newEntryData = {
+      ...sourceEntryData,
+      timetableId: newTimetableRef.id,
+    };
+    const newEntryRef = doc(entriesRef);
+    batch.set(newEntryRef, newEntryData);
+  });
+
+  await batch.commit();
+  console.log('[copyTimetable] Operacja batch.commit() zakończona sukcesem.');
+};

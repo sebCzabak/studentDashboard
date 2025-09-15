@@ -38,6 +38,7 @@ import { NewTimetableEditorPage } from './pages/NewTimetableEditorPages/NewTimet
 import { TimetablesListPage } from './pages/admin/TimetableListPage';
 import { MyTimetablePage } from './pages/MyTimetablePage';
 import { ManageUsersPage } from './pages/admin/ManageUsersPage';
+import { LecturerWorkloadReportPage } from './pages/admin/LecturersWorkloadReportPage';
 
 function App() {
   return (
@@ -176,6 +177,10 @@ function App() {
             <Route
               path="users"
               element={<ManageUsersPage />}
+            />
+            <Route
+              path="reports/workload"
+              element={<LecturerWorkloadReportPage />}
             />
           </Route>
           {/* ================================================================== */}

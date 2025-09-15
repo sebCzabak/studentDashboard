@@ -26,22 +26,23 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import GridViewIcon from '@mui/icons-material/GridView';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import { TimetableFormModal } from '../admin/TimetableFormModal';
+import { TimetableFormModal } from '../../features/timetable/components/TimetableFormModal';
 import {
   createTimetable,
   updateTimetable,
   deleteTimetableAndEntries,
   updateTimetableStatus,
+  copyTimetable, // Importujemy nową funkcję
 } from '../../features/timetable/scheduleService';
 import { groupsService, getSemesters } from '../../features/shared/dictionaryService';
 import { getCurriculums } from '../../features/curriculums/curriculumsService';
-import type { Timetable } from '../../features/timetable/types';
+import type { Timetable, Group, Semester, Curriculum } from '../../features/timetable/types';
 
 export const ManageTimetablesPage = () => {
   const [timetables, setTimetables] = useState<Timetable[]>([]);
-  const [groups, setGroups] = useState<any[]>([]);
-  const [semesters, setSemesters] = useState<any[]>([]);
-  const [curriculums, setCurriculums] = useState<any[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [semesters, setSemesters] = useState<Semester[]>([]);
+  const [curriculums, setCurriculums] = useState<Curriculum[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTimetable, setEditingTimetable] = useState<Timetable | null>(null);
@@ -55,9 +56,9 @@ export const ManageTimetablesPage = () => {
       if (loading) {
         Promise.all([groupsService.getAll(), getSemesters(), getCurriculums()])
           .then(([groupsData, semestersData, curriculumsData]) => {
-            setGroups(groupsData as any[]);
-            setSemesters(semestersData as any[]);
-            setCurriculums(curriculumsData as any[]);
+            setGroups(groupsData as Group[]);
+            setSemesters(semestersData as Semester[]);
+            setCurriculums(curriculumsData as Curriculum[]);
           })
           .catch((_err) => toast.error('Błąd wczytywania danych słownikowych.'))
           .finally(() => setLoading(false));
@@ -67,8 +68,7 @@ export const ManageTimetablesPage = () => {
   }, [loading]);
 
   const handleSave = async (data: Partial<Timetable>, id?: string) => {
-    const promise = id ? updateTimetable(id, data) : createTimetable(data as Timetable);
-
+    const promise = id ? updateTimetable(id, data) : createTimetable(data);
     await toast.promise(promise, {
       loading: 'Zapisywanie planu...',
       success: `Plan został pomyślnie ${id ? 'zaktualizowany' : 'utworzony'}!`,
@@ -80,7 +80,7 @@ export const ManageTimetablesPage = () => {
     if (window.confirm(`Czy na pewno chcesz usunąć plan "${timetableName}" i wszystkie jego zajęcia?`)) {
       await toast.promise(deleteTimetableAndEntries(timetableId), {
         loading: 'Usuwanie planu i zajęć...',
-        success: 'Plan został usunięty.',
+        success: 'Plan został pomyślnie usunięty.',
         error: 'Błąd podczas usuwania.',
       });
     }
@@ -100,11 +100,17 @@ export const ManageTimetablesPage = () => {
     setIsModalOpen(true);
   };
 
-  const handleOpenCopyModal = (timetableToCopy: Timetable) => {
-    const { id, ...copyData } = timetableToCopy;
-    copyData.name = `${copyData.name || ''} - Kopia`;
-    setEditingTimetable(copyData as Timetable);
-    setIsModalOpen(true);
+  const handleCopy = async (timetableToCopy: Timetable) => {
+    const newName = window.prompt('Podaj nową nazwę dla kopii planu:', `${timetableToCopy.name} - Kopia`);
+
+    if (newName) {
+      const promise = copyTimetable(timetableToCopy.id, newName);
+      await toast.promise(promise, {
+        loading: 'Kopiowanie planu i wszystkich zajęć...',
+        success: 'Plan został pomyślnie skopiowany!',
+        error: (err) => err.message || 'Wystąpił błąd podczas kopiowania.',
+      });
+    }
   };
 
   if (loading) {
@@ -121,17 +127,11 @@ export const ManageTimetablesPage = () => {
         component={RouterLink}
         to="/admin"
         startIcon={<ArrowBackIcon />}
-        sx={{ mb: 2 }}
       >
         Wróć do pulpitu
       </Button>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Typography
-          variant="h4"
-          gutterBottom
-        >
-          Zarządzaj Planami Zajęć
-        </Typography>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', my: 2 }}>
+        <Typography variant="h4">Zarządzaj Planami Zajęć</Typography>
         <Button
           variant="contained"
           startIcon={<AddCircleOutlineIcon />}
@@ -145,7 +145,7 @@ export const ManageTimetablesPage = () => {
           <TableHead>
             <TableRow>
               <TableCell>Nazwa Planu</TableCell>
-              <TableCell>Rok Akademicki</TableCell>
+              <TableCell>Siatka Programowa</TableCell>
               <TableCell>Status</TableCell>
               <TableCell align="center">Publikacja</TableCell>
               <TableCell align="right">Akcje</TableCell>
@@ -158,7 +158,7 @@ export const ManageTimetablesPage = () => {
                 hover
               >
                 <TableCell>{tt.name}</TableCell>
-                <TableCell>{tt.academicYear || '---'}</TableCell>
+                <TableCell>{tt.curriculumName || '---'}</TableCell>
                 <TableCell>
                   <Chip
                     label={tt.status === 'published' ? 'Opublikowany' : 'Roboczy'}
@@ -191,7 +191,8 @@ export const ManageTimetablesPage = () => {
                     </IconButton>
                   </Tooltip>
                   <Tooltip title="Kopiuj plan">
-                    <IconButton onClick={() => handleOpenCopyModal(tt)}>
+                    {/* ✅ POPRAWKA: Przycisk wywołuje nową funkcję `handleCopy` */}
+                    <IconButton onClick={() => handleCopy(tt)}>
                       <ContentCopyIcon />
                     </IconButton>
                   </Tooltip>

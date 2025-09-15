@@ -33,6 +33,7 @@ import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
 import EventNoteIcon from '@mui/icons-material/EventNote';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import AccountBoxIcon from '@mui/icons-material/AccountBox';
+import AssignmentIcon from '@mui/icons-material/AddComment';
 
 // Definicja kafelków z przypisanymi rolami
 const allAdminTiles = [
@@ -123,6 +124,15 @@ const allAdminTiles = [
     section: 'Konfiguracja',
     allowedRoles: ['admin'],
   },
+  {
+    title: 'Stwórz raport',
+    description: 'Stwórz raport z przydziałów.',
+    icon: <AssignmentIcon sx={{ fontSize: 40 }} />,
+    path: '/admin/reports/workload',
+    section: 'Konfiguracja',
+    allowedRoles: ['admin'],
+  },
+
   {
     title: 'Zarządzaj Grupami',
     description: 'Twórz i edytuj grupy studenckie.',

@@ -38,6 +38,7 @@ import EventNoteIcon from '@mui/icons-material/EventNote';
 import LibraryBooksIcon from '@mui/icons-material/LibraryBooks';
 import StyleIcon from '@mui/icons-material/Style';
 import HowToRegIcon from '@mui/icons-material/HowToReg';
+import AssignmentIcon from '@mui/icons-material/Assignment';
 // Firebase & Context
 import { signOut } from 'firebase/auth';
 import { auth } from '../../config/firebase';
@@ -115,6 +116,12 @@ const adminNavItems = [
     text: 'Zarządzaj Użytkownikiami',
     icon: <ArticleIcon />,
     path: '/admin/users',
+    allowedRoles: ['admin'],
+  },
+  {
+    text: 'Stwórz Raport',
+    icon: <AssignmentIcon />,
+    path: '/admin/reports/workload',
     allowedRoles: ['admin'],
   },
   // === NOWY LINK ===

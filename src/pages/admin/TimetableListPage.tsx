@@ -26,12 +26,13 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import GridViewIcon from '@mui/icons-material/GridView';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import { TimetableFormModal } from '../admin/TimetableFormModal';
+import { TimetableFormModal } from '../../features/timetable/components/TimetableFormModal';
 import {
   createTimetable,
   updateTimetable,
   deleteTimetableAndEntries,
   updateTimetableStatus,
+  copyTimetable,
 } from '../../features/timetable/scheduleService';
 import { groupsService, getSemesters } from '../../features/shared/dictionaryService';
 import { getCurriculums } from '../../features/curriculums/curriculumsService';
@@ -59,7 +60,7 @@ export const TimetablesListPage = () => {
             setSemesters(semestersData as Semester[]);
             setCurriculums(curriculumsData as Curriculum[]);
           })
-          .catch((_err) => toast.error('Błąd wczytywania danych słownikowych.'))
+          .catch((__err) => toast.error('Błąd wczytywania danych słownikowych.'))
           .finally(() => setLoading(false));
       }
     });
@@ -67,7 +68,7 @@ export const TimetablesListPage = () => {
   }, [loading]);
 
   const handleSave = async (data: Partial<Timetable>, id?: string) => {
-    const promise = id ? updateTimetable(id, data) : createTimetable(data as Timetable);
+    const promise = id ? updateTimetable(id, data) : createTimetable(data);
     await toast.promise(promise, {
       loading: 'Zapisywanie planu...',
       success: `Plan został pomyślnie ${id ? 'zaktualizowany' : 'utworzony'}!`,
@@ -99,11 +100,17 @@ export const TimetablesListPage = () => {
     setIsModalOpen(true);
   };
 
-  const handleOpenCopyModal = (timetableToCopy: Timetable) => {
-    const { id, ...copyData } = timetableToCopy;
-    copyData.name = `${copyData.name || ''} - Kopia`;
-    setEditingTimetable(copyData as Timetable);
-    setIsModalOpen(true);
+  const handleCopy = async (timetableToCopy: Timetable) => {
+    const newName = window.prompt('Podaj nową nazwę dla kopii planu:', `${timetableToCopy.name} - Kopia`);
+
+    if (newName) {
+      const promise = copyTimetable(timetableToCopy.id, newName);
+      await toast.promise(promise, {
+        loading: 'Kopiowanie planu i wszystkich zajęć...',
+        success: 'Plan został pomyślnie skopiowany!',
+        error: (err) => err.message || 'Wystąpił błąd podczas kopiowania.',
+      });
+    }
   };
 
   if (loading) {
@@ -115,16 +122,16 @@ export const TimetablesListPage = () => {
   }
 
   return (
-    <Box sx={{ p: 3 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-        <Button
-          component={RouterLink}
-          to="/admin"
-          startIcon={<ArrowBackIcon />}
-        >
-          Wróć do pulpitu
-        </Button>
-        <Typography variant="h4">Zarządzanie Planami Zajęć</Typography>
+    <Box sx={{ p: 3, width: '100%' }}>
+      <Button
+        component={RouterLink}
+        to="/admin"
+        startIcon={<ArrowBackIcon />}
+      >
+        Wróć do pulpitu
+      </Button>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', my: 2 }}>
+        <Typography variant="h4">Zarządzaj Planami Zajęć</Typography>
         <Button
           variant="contained"
           startIcon={<AddCircleOutlineIcon />}
@@ -145,25 +152,25 @@ export const TimetablesListPage = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {timetables.map((timetable) => (
+            {timetables.map((tt) => (
               <TableRow
-                key={timetable.id}
+                key={tt.id}
                 hover
               >
-                <TableCell>{timetable.name}</TableCell>
-                <TableCell>{timetable.curriculumName || '---'}</TableCell>
+                <TableCell>{tt.name}</TableCell>
+                <TableCell>{tt.curriculumName || '---'}</TableCell>
                 <TableCell>
                   <Chip
-                    label={timetable.status === 'published' ? 'Opublikowany' : 'Roboczy'}
-                    color={timetable.status === 'published' ? 'success' : 'default'}
+                    label={tt.status === 'published' ? 'Opublikowany' : 'Roboczy'}
+                    color={tt.status === 'published' ? 'success' : 'default'}
                     size="small"
                   />
                 </TableCell>
                 <TableCell align="center">
-                  <Tooltip title={timetable.status === 'published' ? 'Cofnij publikację' : 'Opublikuj plan'}>
+                  <Tooltip title={tt.status === 'published' ? 'Cofnij publikację' : 'Opublikuj plan'}>
                     <Switch
-                      checked={timetable.status === 'published'}
-                      onChange={() => handleStatusChange(timetable)}
+                      checked={tt.status === 'published'}
+                      onChange={() => handleStatusChange(tt)}
                       color="success"
                     />
                   </Tooltip>
@@ -172,7 +179,7 @@ export const TimetablesListPage = () => {
                   <Tooltip title="Układaj w kreatorze">
                     <IconButton
                       color="secondary"
-                      onClick={() => navigate(`/admin/timetables/${timetable.id}`)}
+                      onClick={() => navigate(`/admin/timetables/${tt.id}`)}
                     >
                       <GridViewIcon />
                     </IconButton>
@@ -180,20 +187,20 @@ export const TimetablesListPage = () => {
                   <Tooltip title="Edytuj dane">
                     <IconButton
                       color="primary"
-                      onClick={() => handleOpenModal(timetable)}
+                      onClick={() => handleOpenModal(tt)}
                     >
                       <EditIcon />
                     </IconButton>
                   </Tooltip>
-                  <Tooltip title="Kopiuj">
-                    <IconButton onClick={() => handleOpenCopyModal(timetable)}>
+                  <Tooltip title="Kopiuj plan">
+                    <IconButton onClick={() => handleCopy(tt)}>
                       <ContentCopyIcon />
                     </IconButton>
                   </Tooltip>
-                  <Tooltip title="Usuń">
+                  <Tooltip title="Usuń plan">
                     <IconButton
                       color="error"
-                      onClick={() => handleDelete(timetable.id, timetable.name)}
+                      onClick={() => handleDelete(tt.id, tt.name)}
                     >
                       <DeleteIcon />
                     </IconButton>

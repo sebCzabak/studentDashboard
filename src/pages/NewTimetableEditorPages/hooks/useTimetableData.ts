@@ -87,12 +87,12 @@ const fetchRelatedData = async (timetableId: string): Promise<TimetablePageData>
   }
 
   const curriculumSubjects = subjectsFromSemester
-    .map((curriculumSubj): CurriculumSubject | null => {
+    .map((curriculumSubj: any, index: number): CurriculumSubject | null => {
       const subjectDetails = subjectsMap.get(curriculumSubj.subjectId);
       if (!subjectDetails) return null;
       const lecturerDetails = lecturersMap.get(curriculumSubj.lecturerId);
       return {
-        id: `${curriculumSubj.subjectId}-${curriculumSubj.type || 'zajecia'}`,
+        id: `${curriculumSubj.subjectId}-${curriculumSubj.type || 'zajecia'}-${index}`,
         subjectId: curriculumSubj.subjectId,
         subjectName: subjectDetails.name || 'Brak nazwy',
         lecturerId: curriculumSubj.lecturerId,
