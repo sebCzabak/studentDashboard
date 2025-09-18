@@ -15,19 +15,21 @@ import {
   MenuItem,
   FormControl,
   InputLabel,
+  Grid,
+  Autocomplete,
+  TextField,
+  Chip,
 } from '@mui/material';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import toast from 'react-hot-toast';
-import { collection, getDocs, query, where } from 'firebase/firestore';
+import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../config/firebase';
-import type { ScheduleEntry, Timetable, Subject, Semester } from '../../features/timetable/types';
-import { getAllLecturers, type UserProfile } from '../../features/user/userService';
-import { getSemesters } from '../../features/shared/dictionaryService';
+import type { ScheduleEntry, Timetable, Semester } from '../../features/timetable/types';
+import { getSemesters, getAllLecturers } from '../../features/shared/dictionaryService';
+import type { UserProfile } from '../../features/user/userService';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import * as XLSX from 'xlsx';
-import { Link as RouterLink } from 'react-router-dom';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
 // Definicja typu dla przetworzonych danych w raporcie
 interface WorkloadRow {
@@ -35,48 +37,46 @@ interface WorkloadRow {
   lecturerName: string;
   subjectName: string;
   studyMode: string;
-  hours: {
-    Wykład: number;
-    Ćwiczenia: number;
-    Laboratorium: number;
-    Seminarium: number;
-  };
+  hours: { [key: string]: number };
   totalHours: number;
 }
+
+// Mapowanie dni tygodnia na potrzeby sortowania
+const dayOrder: { [key: string]: number } = {
+  Poniedziałek: 1,
+  Wtorek: 2,
+  Środa: 3,
+  Czwartek: 4,
+  Piątek: 5,
+  Sobota: 6,
+  Niedziela: 7,
+};
 
 export const LecturerWorkloadReportPage = () => {
   const [loading, setLoading] = useState(true);
   const [allEntries, setAllEntries] = useState<ScheduleEntry[]>([]);
   const [allTimetables, setAllTimetables] = useState<Timetable[]>([]);
-  const [allSubjects, setAllSubjects] = useState<Subject[]>([]);
   const [allLecturers, setAllLecturers] = useState<UserProfile[]>([]);
   const [semesters, setSemesters] = useState<Semester[]>([]);
-  const [selectedSemesterId, setSelectedSemesterId] = useState<string>('');
+  const [selectedSemesterId, setSelectedSemesterId] = useState<string>('all');
+  const [selectedAcademicYear, setSelectedAcademicYear] = useState<string>('all');
+  const [selectedLecturerId, setSelectedLecturerId] = useState<string>('all');
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [entriesSnap, timetablesSnap, subjectsSnap, lecturersSnap, semestersData] = await Promise.all([
+        const [entriesSnap, timetablesSnap, lecturersData, semestersData] = await Promise.all([
           getDocs(collection(db, 'scheduleEntries')),
           getDocs(collection(db, 'timetables')),
-          getDocs(collection(db, 'subjects')),
           getAllLecturers(),
           getSemesters(),
         ]);
-        const mapDoc = (doc: any) => {
-          const data = doc.data();
-          return { id: doc.id, ...data };
-        };
 
+        const mapDoc = (doc: any) => ({ id: doc.id, ...doc.data() });
         setAllEntries(entriesSnap.docs.map(mapDoc) as ScheduleEntry[]);
         setAllTimetables(timetablesSnap.docs.map(mapDoc) as Timetable[]);
-        setAllSubjects(subjectsSnap.docs.map(mapDoc) as Subject[]);
-        setAllLecturers(lecturersSnap as UserProfile[]);
+        setAllLecturers(lecturersData as UserProfile[]);
         setSemesters(semestersData as Semester[]);
-
-        if (semestersData.length > 0) {
-          setSelectedSemesterId(semestersData[0].id);
-        }
       } catch (err) {
         toast.error('Błąd pobierania danych do raportu.');
         console.error(err);
@@ -87,42 +87,70 @@ export const LecturerWorkloadReportPage = () => {
     fetchData();
   }, []);
 
-  // Logika agregacji danych
-  const reportData = useMemo(() => {
-    if (!selectedSemesterId) return [];
+  const academicYears = useMemo(() => {
+    const years = new Set(allTimetables.map((t) => t.academicYear).filter(Boolean));
+    return ['all', ...Array.from(years).sort().reverse()];
+  }, [allTimetables]);
 
-    const timetablesInSemester = allTimetables.filter((t) => t.semesterId === selectedSemesterId);
-    const timetableIdsInSemester = new Set(timetablesInSemester.map((t) => t.id));
-    const entriesInSemester = allEntries.filter((e) => timetableIdsInSemester.has(e.timetableId));
+  const reportData = useMemo(() => {
+    const filteredTimetables = allTimetables.filter(
+      (t) =>
+        (selectedSemesterId === 'all' || t.semesterId === selectedSemesterId) &&
+        (selectedAcademicYear === 'all' || t.academicYear === selectedAcademicYear)
+    );
+    const filteredTimetableIds = new Set(filteredTimetables.map((t) => t.id));
+
+    let entriesToReport = allEntries.filter((e) => filteredTimetableIds.has(e.timetableId));
+
+    if (selectedLecturerId !== 'all') {
+      entriesToReport = entriesToReport.filter((e) => e.lecturerId === selectedLecturerId);
+    }
 
     const aggregation: Record<string, WorkloadRow> = {};
-
-    entriesInSemester.forEach((entry) => {
-      const timetable = timetablesInSemester.find((t) => t.id === entry.timetableId);
+    entriesToReport.forEach((entry) => {
+      const timetable = filteredTimetables.find((t) => t.id === entry.timetableId);
       if (!timetable) return;
 
       const key = `${entry.lecturerId}-${entry.subjectId}-${timetable.studyMode}`;
-
       if (!aggregation[key]) {
         aggregation[key] = {
           lecturerId: entry.lecturerId,
           lecturerName: entry.lecturerName,
           subjectName: entry.subjectName,
           studyMode: timetable.studyMode || 'stacjonarny',
-          hours: { Wykład: 0, Ćwiczenia: 0, Laboratorium: 0, Seminarium: 0 },
+          hours: {},
           totalHours: 0,
         };
       }
 
-      const hoursPerBlock = 1.5; // Zakładamy, że każde zajęcia trwają 1.5h
-      aggregation[key].hours[entry.type] += hoursPerBlock;
+      const hoursPerBlock = 1.5;
+      const entryType = entry.type || 'Inne';
+      aggregation[key].hours[entryType] = (aggregation[key].hours[entryType] || 0) + hoursPerBlock;
       aggregation[key].totalHours += hoursPerBlock;
     });
 
     return Object.values(aggregation).sort((a, b) => a.lecturerName.localeCompare(b.lecturerName));
-  }, [selectedSemesterId, allEntries, allTimetables, allSubjects, allLecturers]);
+  }, [selectedSemesterId, selectedAcademicYear, selectedLecturerId, allEntries, allTimetables]);
 
-  // Logika eksportu
+  const lecturerDetailData = useMemo(() => {
+    if (selectedLecturerId === 'all' || !reportData) return [];
+
+    const filteredTimetables = allTimetables.filter(
+      (t) =>
+        (selectedSemesterId === 'all' || t.semesterId === selectedSemesterId) &&
+        (selectedAcademicYear === 'all' || t.academicYear === selectedAcademicYear)
+    );
+    const filteredTimetableIds = new Set(filteredTimetables.map((t) => t.id));
+
+    return allEntries
+      .filter((e) => e.lecturerId === selectedLecturerId && filteredTimetableIds.has(e.timetableId))
+      .sort((a, b) => {
+        const dayComparison = (dayOrder[a.day] || 99) - (dayOrder[b.day] || 99);
+        if (dayComparison !== 0) return dayComparison;
+        return a.startTime.localeCompare(b.startTime);
+      });
+  }, [selectedLecturerId, reportData, allEntries, allTimetables, selectedSemesterId, selectedAcademicYear]);
+
   const handleExport = (format: 'xlsx' | 'pdf') => {
     const headers = [
       'Prowadzący',
@@ -138,18 +166,22 @@ export const LecturerWorkloadReportPage = () => {
       row.lecturerName,
       row.subjectName,
       row.studyMode,
-      row.hours.Wykład,
-      row.hours.Ćwiczenia,
-      row.hours.Laboratorium,
-      row.hours.Seminarium,
+      row.hours['Wykład'] || 0,
+      row.hours['Ćwiczenia'] || 0,
+      row.hours['Laboratorium'] || 0,
+      row.hours['Seminarium'] || 0,
       row.totalHours,
     ]);
+
+    const semesterName = semesters.find((s) => s.id === selectedSemesterId)?.name || 'wszystkie_semestry';
+    const yearName = selectedAcademicYear === 'all' ? 'wszystkie_lata' : (selectedAcademicYear || '').replace('/', '-');
+    const fileName = `raport_obciazenia_${yearName}_${semesterName.replace(/ /g, '_')}`;
 
     if (format === 'xlsx') {
       const worksheet = XLSX.utils.aoa_to_sheet([headers, ...body]);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Raport Obciążenia');
-      XLSX.writeFile(workbook, `raport_obciazenia_${new Date().toISOString().split('T')[0]}.xlsx`);
+      XLSX.writeFile(workbook, `${fileName}.xlsx`);
     }
 
     if (format === 'pdf') {
@@ -158,9 +190,17 @@ export const LecturerWorkloadReportPage = () => {
         head: [headers],
         body: body,
       });
-      doc.save(`raport_obciazenia_${new Date().toISOString().split('T')[0]}.pdf`);
+      doc.save(`${fileName}.pdf`);
     }
   };
+
+  const allTypes = useMemo(() => {
+    const types = new Set<string>();
+    reportData.forEach((row) => Object.keys(row.hours).forEach((type) => types.add(type)));
+    return ['Wykład', 'Ćwiczenia', 'Laboratorium', 'Seminarium', ...Array.from(types)].filter(
+      (value, index, self) => self.indexOf(value) === index
+    );
+  }, [reportData]);
 
   if (loading) return <CircularProgress />;
 
@@ -173,49 +213,94 @@ export const LecturerWorkloadReportPage = () => {
         Raport Obciążenia Prowadzących
       </Typography>
 
-      <Paper sx={{ p: 2, mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Button
-          component={RouterLink}
-          to="/admin"
-          startIcon={<ArrowBackIcon />}
-          sx={{ mb: 2 }}
+      <Paper sx={{ p: 2, mb: 2 }}>
+        <Grid
+          container
+          spacing={2}
+          alignItems="center"
         >
-          Wróć do pulpitu
-        </Button>
-        <FormControl sx={{ minWidth: 240 }}>
-          <InputLabel>Wybierz semestr</InputLabel>
-          <Select
-            value={selectedSemesterId}
-            label="Wybierz semestr"
-            onChange={(e) => setSelectedSemesterId(e.target.value)}
-          >
-            {semesters.map((s) => (
-              <MenuItem
-                key={s.id}
-                value={s.id}
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+            <FormControl fullWidth>
+              <InputLabel>Rok akademicki</InputLabel>
+              <Select
+                value={selectedAcademicYear}
+                label="Rok akademicki"
+                onChange={(e) => setSelectedAcademicYear(e.target.value)}
               >
-                {s.name}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
-        <Box>
-          <Button
-            sx={{ mr: 1 }}
-            variant="outlined"
-            onClick={() => handleExport('xlsx')}
-            startIcon={<FileDownloadIcon />}
+                {academicYears.map((year) => (
+                  <MenuItem
+                    key={year}
+                    value={year}
+                  >
+                    {year === 'all' ? 'Wszystkie lata' : year}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+            <FormControl fullWidth>
+              <InputLabel>Semestr</InputLabel>
+              <Select
+                value={selectedSemesterId}
+                label="Semestr"
+                onChange={(e) => setSelectedSemesterId(e.target.value)}
+              >
+                <MenuItem value="all">Wszystkie semestry</MenuItem>
+                {semesters.map((s) => (
+                  <MenuItem
+                    key={s.id}
+                    value={s.id}
+                  >
+                    {s.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
+            <Autocomplete
+              options={[{ id: 'all', displayName: 'Wszyscy prowadzący' }, ...allLecturers]}
+              getOptionLabel={(option) => option.displayName}
+              value={
+                allLecturers.find((l) => l.id === selectedLecturerId) || {
+                  id: 'all',
+                  displayName: 'Wszyscy prowadzący',
+                }
+              }
+              onChange={(_e, newValue) => setSelectedLecturerId(newValue?.id || 'all')}
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  label="Prowadzący"
+                />
+              )}
+            />
+          </Grid>
+          <Grid
+            size={{ xs: 12, sm: 6, md: 3 }}
+            sx={{ textAlign: { md: 'right', xs: 'left' } }}
           >
-            Eksportuj do Excel
-          </Button>
-          <Button
-            variant="outlined"
-            onClick={() => handleExport('pdf')}
-            startIcon={<FileDownloadIcon />}
-          >
-            Eksportuj do PDF
-          </Button>
-        </Box>
+            <Button
+              sx={{ mr: 1, mt: { xs: 1, sm: 0 } }}
+              variant="outlined"
+              onClick={() => handleExport('xlsx')}
+              startIcon={<FileDownloadIcon />}
+              disabled={reportData.length === 0}
+            >
+              Excel
+            </Button>
+            <Button
+              variant="outlined"
+              onClick={() => handleExport('pdf')}
+              startIcon={<FileDownloadIcon />}
+              disabled={reportData.length === 0}
+              sx={{ mt: { xs: 1, sm: 0 } }}
+            >
+              PDF
+            </Button>
+          </Grid>
+        </Grid>
       </Paper>
 
       <TableContainer component={Paper}>
@@ -223,26 +308,41 @@ export const LecturerWorkloadReportPage = () => {
           <TableHead>
             <TableRow>
               <TableCell>Prowadzący</TableCell>
-              <TableCell>Nazwa przedmiotu</TableCell>
+              <TableCell>Przedmiot</TableCell>
               <TableCell>Tryb</TableCell>
-              <TableCell align="right">Wykład (h)</TableCell>
-              <TableCell align="right">Ćwiczenia (h)</TableCell>
-              <TableCell align="right">Laboratorium (h)</TableCell>
-              <TableCell align="right">Suma (h)</TableCell>
+              {allTypes.map((type) => (
+                <TableCell
+                  key={type}
+                  align="right"
+                >
+                  {type} (h)
+                </TableCell>
+              ))}
+              <TableCell
+                align="right"
+                sx={{ fontWeight: 'bold' }}
+              >
+                Suma (h)
+              </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
             {reportData.map((row, index) => (
               <TableRow
-                key={`${row.lecturerId}-${row.subjectName}-${index}`}
+                key={`${row.lecturerId}-${row.subjectName}-${row.studyMode}-${index}`}
                 hover
               >
                 <TableCell>{row.lecturerName}</TableCell>
                 <TableCell>{row.subjectName}</TableCell>
                 <TableCell>{row.studyMode}</TableCell>
-                <TableCell align="right">{row.hours.Wykład || '-'}</TableCell>
-                <TableCell align="right">{row.hours.Ćwiczenia || '-'}</TableCell>
-                <TableCell align="right">{row.hours.Laboratorium || '-'}</TableCell>
+                {allTypes.map((type) => (
+                  <TableCell
+                    key={type}
+                    align="right"
+                  >
+                    {row.hours[type] || '-'}
+                  </TableCell>
+                ))}
                 <TableCell
                   align="right"
                   sx={{ fontWeight: 'bold' }}
@@ -254,6 +354,53 @@ export const LecturerWorkloadReportPage = () => {
           </TableBody>
         </Table>
       </TableContainer>
+
+      {selectedLecturerId !== 'all' && lecturerDetailData.length > 0 && (
+        <Box sx={{ mt: 4 }}>
+          <Typography
+            variant="h5"
+            gutterBottom
+          >
+            Szczegółowy harmonogram dla: {allLecturers.find((l) => l.id === selectedLecturerId)?.displayName}
+          </Typography>
+          <TableContainer component={Paper}>
+            <Table size="small">
+              <TableHead>
+                <TableRow>
+                  <TableCell>Przedmiot</TableCell>
+                  <TableCell>Dzień</TableCell>
+                  <TableCell>Godziny</TableCell>
+                  <TableCell>Grupy</TableCell>
+                  <TableCell>Daty</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {lecturerDetailData.map((entry) => (
+                  <TableRow key={entry.id}>
+                    <TableCell>
+                      {entry.subjectName}{' '}
+                      <Chip
+                        label={entry.type}
+                        size="small"
+                      />
+                    </TableCell>
+                    <TableCell>{entry.day}</TableCell>
+                    <TableCell>
+                      {entry.startTime}-{entry.endTime}
+                    </TableCell>
+                    <TableCell>{entry.groupNames.join(', ')}</TableCell>
+                    <TableCell>
+                      {entry.specificDates && entry.specificDates.length > 0
+                        ? entry.specificDates.map((ts) => ts.toDate().toLocaleDateString()).join('; ')
+                        : 'Co tydzień'}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </TableContainer>
+        </Box>
+      )}
     </Box>
   );
 };
