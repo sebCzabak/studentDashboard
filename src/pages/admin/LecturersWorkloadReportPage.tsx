@@ -30,6 +30,9 @@ import type { UserProfile } from '../../features/user/userService';
 import jsPDF from 'jspdf';
 import 'jspdf-autotable';
 import * as XLSX from 'xlsx';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import { Link as RouterLink } from 'react-router-dom';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 
 // Definicja typu dla przetworzonych danych w raporcie
 interface WorkloadRow {
@@ -206,6 +209,13 @@ export const LecturerWorkloadReportPage = () => {
 
   return (
     <Box sx={{ p: 3 }}>
+      <Button
+        component={RouterLink}
+        to="/admin"
+        startIcon={<ArrowBackIcon />}
+      >
+        Wróć do pulpitu
+      </Button>
       <Typography
         variant="h4"
         gutterBottom
@@ -363,6 +373,14 @@ export const LecturerWorkloadReportPage = () => {
           >
             Szczegółowy harmonogram dla: {allLecturers.find((l) => l.id === selectedLecturerId)?.displayName}
           </Typography>
+          <Button
+            variant="outlined"
+            component={RouterLink}
+            to={`/admin/schedule-view/${selectedLecturerId}`} // Dynamiczny link
+            startIcon={<VisibilityIcon />}
+          >
+            Pokaż widok planu
+          </Button>
           <TableContainer component={Paper}>
             <Table size="small">
               <TableHead>

@@ -53,14 +53,6 @@ export const specializationsService = crudService('specializations');
 
 export const subjectsService = crudService('subjects');
 
-// --- FUNKCJE SPECJALISTYCZNE ---
-
-/**
-
- * Pobiera wszystkich użytkowników z rolą 'prowadzacy'.
-
- */
-
 export const getAllLecturers = async (): Promise<UserProfile[]> => {
   const usersRef = collection(db, 'users');
 

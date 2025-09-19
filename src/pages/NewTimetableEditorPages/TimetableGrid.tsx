@@ -4,10 +4,10 @@ import { Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow
 import { DraggableScheduleEntry } from './DraggableScheduleEntry';
 import type { ScheduleEntry, DayOfWeek, LecturerAvailability } from '../../features/timetable/types';
 
+// Definicje dni i godzin, które mogą być współdzielone
 const STUDY_MODE_DAYS: Record<string, DayOfWeek[]> = {
   stacjonarny: ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek'],
   zaoczne: ['Sobota', 'Niedziela'],
-
   podyplomowe: ['Sobota', 'Niedziela'],
   anglojęzyczne: ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek'],
 };
@@ -78,11 +78,13 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
   activeLecturerId,
   lecturerAvailability,
   conflictingEntries,
+  isReadOnly, // Odbieramy prop `isReadOnly`
   studyMode,
   teachingMode,
 }) => {
   const daysToDisplay = STUDY_MODE_DAYS[studyMode] || STUDY_MODE_DAYS['stacjonarny'];
   const timeSlots = teachingMode === 'online' ? TIME_SLOTS_ONLINE : TIME_SLOTS_STACJONARNE;
+
   const cellStatusMap = useMemo(() => {
     const map = new Map<string, CellStatus>();
     if (!activeLecturerId) return map;
@@ -158,7 +160,7 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
                         key={entry.id}
                         entry={entry}
                         onClick={onEntryClick}
-                        isReadOnly={false}
+                        isReadOnly={isReadOnly} // ✅ Używamy przekazanego propa
                       />
                     ))}
                   </DroppableCell>

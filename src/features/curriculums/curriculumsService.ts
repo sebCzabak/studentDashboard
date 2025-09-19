@@ -1,64 +1,30 @@
+import { collection, getDocs, addDoc, updateDoc, deleteDoc, doc, query, orderBy } from 'firebase/firestore';
 import { db } from '../../config/firebase';
-import {
-  collection,
-  getDocs,
-  query,
-  orderBy,
-  type DocumentData,
-  addDoc,
-  doc,
-  updateDoc,
-  deleteDoc,
-  serverTimestamp,
-  getDoc,
-} from 'firebase/firestore';
-import { type Curriculum } from './types';
+import type { Curriculum } from './types';
 
 export const getCurriculums = async (): Promise<Curriculum[]> => {
   const curriculumsRef = collection(db, 'curriculums');
   const q = query(curriculumsRef, orderBy('academicYear', 'desc'));
-  const querySnapshot = await getDocs(q);
-  return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as Curriculum[];
+  const snapshot = await getDocs(q);
+  return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Curriculum));
 };
 
 export const getAllSubjects = async () => {
-  const subjectsRef = collection(db, 'subjects');
-  const q = query(subjectsRef, orderBy('name'));
-  const querySnapshot = await getDocs(q);
-  return querySnapshot.docs.map((doc: DocumentData) => ({
-    id: doc.id,
-    ...doc.data(),
-  }));
+  // Ta funkcja powinna być prawdopodobnie w `dictionaryService`
+  const snapshot = await getDocs(collection(db, 'subjects'));
+  return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 };
 
-export const addCurriculum = (curriculumData: any) => {
-  const curriculumsRef = collection(db, 'curriculums');
-  // Używamy `addDoc`, aby Firestore sam wygenerował unikalne ID
-  return addDoc(curriculumsRef, {
-    ...curriculumData,
-    createdAt: serverTimestamp(),
-  });
+// ✅ POPRAWIONA FUNKCJA
+export const addCurriculum = async (data: Omit<Curriculum, 'id'>): Promise<void> => {
+  await addDoc(collection(db, 'curriculums'), data);
 };
 
-export const updateCurriculum = (id: string, curriculumData: any) => {
-  const curriculumDocRef = doc(db, 'curriculums', id);
-  return updateDoc(curriculumDocRef, {
-    ...curriculumData,
-    lastUpdatedAt: serverTimestamp(),
-  });
+export const updateCurriculum = async (id: string, data: Partial<Omit<Curriculum, 'id'>>): Promise<void> => {
+  const curriculumRef = doc(db, 'curriculums', id);
+  await updateDoc(curriculumRef, data);
 };
 
-export const deleteCurriculum = (id: string) => {
-  const curriculumDocRef = doc(db, 'curriculums', id);
-  return deleteDoc(curriculumDocRef);
-};
-export const getCurriculumById = async (curriculumId: string) => {
-  const curriculumDocRef = doc(db, 'curriculums', curriculumId);
-  const docSnap = await getDoc(curriculumDocRef);
-
-  if (docSnap.exists()) {
-    return { id: docSnap.id, ...docSnap.data() };
-  } else {
-    throw new Error(`Nie znaleziono siatki programowej o ID: ${curriculumId}`);
-  }
+export const deleteCurriculum = (id: string): Promise<void> => {
+  return deleteDoc(doc(db, 'curriculums', id));
 };
