@@ -12,4 +12,5 @@ export const TIME_SLOTS = [
   { label: '15:00-16:30', startTime: '15:00', endTime: '16:30' },
   { label: '16:45-18:15', startTime: '16:45', endTime: '18:15' },
   { label: '18:30-20:00', startTime: '18:30', endTime: '20:00' },
+  { label: '20:10-21:40', startTime: '20:10', endTime: '21:40' },
 ];

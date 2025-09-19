@@ -78,6 +78,11 @@ export const getSemesters = async (): Promise<Semester[]> => {
   // Używamy asercji typu, aby TypeScript wiedział, że to jest tablica typu Semester
   return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as Semester[];
 };
+export const getAllSubjects = async () => {
+  // Ta funkcja powinna być prawdopodobnie w `dictionaryService`
+  const snapshot = await getDocs(collection(db, 'subjects'));
+  return snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+};
 
 /**
 

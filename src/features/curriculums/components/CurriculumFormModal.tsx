@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Dialog,
   DialogTitle,
@@ -15,53 +15,72 @@ import {
   InputLabel,
   Divider,
   Paper,
+  Autocomplete,
   type SelectChangeEvent,
 } from '@mui/material';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
-import { type CurriculumSemester } from '../types';
 import toast from 'react-hot-toast';
-
+import type { Curriculum, Subject, Semester, Department, Group } from '../../../features/timetable/types';
+import type { UserProfile } from '../../../features/user/userService';
 interface CurriculumFormModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (scheduleData: any) => void;
-  subjectsList: any[];
-  lecturersList: any[];
-  semestersList: any[];
-  initialData?: any | null;
-  groups: any[];
+  onSave: (scheduleData: Omit<Curriculum, 'id'>, id?: string) => Promise<void>;
+  subjectsList: Subject[];
+  lecturersList: UserProfile[];
+  semestersList: Semester[];
+  initialData: Curriculum | null;
+  departments: Department[];
+  groups: Group[];
 }
 
-const initialSubject = { subjectId: '', lecturerId: '', type: 'wykład', hours: 0, ects: 0 };
+const initialSubject = { subjectId: '', lecturerId: '', type: 'Wykład', hours: 30, ects: 5 };
 const initialSemester = { semesterId: '', subjects: [{ ...initialSubject }] };
 
-export const CurriculumFormModal = ({
+export const CurriculumFormModal: React.FC<CurriculumFormModalProps> = ({
   open,
   onClose,
   onSave,
   subjectsList,
   lecturersList,
   semestersList,
-  initialData = null,
-}: CurriculumFormModalProps) => {
+  initialData,
+  departments,
+}) => {
   const [programName, setProgramName] = useState('');
   const [academicYear, setAcademicYear] = useState('');
   const [semesters, setSemesters] = useState<any[]>([initialSemester]);
+  const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>('all');
 
   useEffect(() => {
-    if (open && initialData) {
-      setProgramName(initialData.programName || '');
-      setAcademicYear(initialData.academicYear || '');
-      setSemesters(
-        initialData.semesters && initialData.semesters.length > 0 ? initialData.semesters : [initialSemester]
-      );
-    } else {
-      setProgramName('');
-      setAcademicYear('');
-      setSemesters([{ ...initialSemester }]);
+    if (open) {
+      if (initialData) {
+        setProgramName(initialData.programName || '');
+        setAcademicYear(initialData.academicYear || '');
+        setSemesters(
+          initialData.semesters && initialData.semesters.length > 0 ? initialData.semesters : [{ ...initialSemester }]
+        );
+      } else {
+        setProgramName('');
+        setAcademicYear('');
+        setSemesters([{ ...initialSemester }]);
+      }
     }
   }, [initialData, open]);
+
+  const filteredAndSortedSubjects = useMemo(() => {
+    const filtered =
+      selectedDepartmentId === 'all'
+        ? subjectsList
+        : subjectsList.filter((subject) => subject.departmentId === selectedDepartmentId);
+    return filtered.sort((a, b) => a.name.localeCompare(b.name, 'pl'));
+  }, [subjectsList, selectedDepartmentId]);
+
+  const sortedLecturers = useMemo(
+    () => [...lecturersList].sort((a, b) => a.displayName.localeCompare(b.displayName, 'pl')),
+    [lecturersList]
+  );
 
   const handleSemesterChange = (semIndex: number, newSemesterId: string) => {
     const newSemesters = [...semesters];
@@ -91,7 +110,7 @@ export const CurriculumFormModal = ({
     setSemesters([...semesters, { ...initialSemester }]);
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!programName || !academicYear) {
       return toast.error('Nazwa programu i rok akademicki są wymagane.');
     }
@@ -110,21 +129,21 @@ export const CurriculumFormModal = ({
         })),
       })),
     };
-    onSave(curriculumData);
+    await onSave(curriculumData as Omit<Curriculum, 'id'>, initialData?.id);
   };
 
   return (
     <Dialog
       open={open}
       onClose={onClose}
-      maxWidth="md"
+      maxWidth="lg"
       fullWidth
     >
       <DialogTitle>{initialData ? 'Edytuj Siatkę Programową' : 'Nowa Siatka Programowa'}</DialogTitle>
       <DialogContent>
         <Stack
           spacing={2}
-          sx={{ pt: 1, minHeight: '60vh' }}
+          sx={{ pt: 1 }}
         >
           <TextField
             label="Nazwa Programu (np. Informatyka, I stopień)"
@@ -148,7 +167,10 @@ export const CurriculumFormModal = ({
               variant="outlined"
               sx={{ p: 2 }}
             >
-              <FormControl fullWidth>
+              <FormControl
+                fullWidth
+                sx={{ mb: 2 }}
+              >
                 <InputLabel>Wybierz Semestr</InputLabel>
                 <Select
                   value={semester.semesterId}
@@ -166,52 +188,66 @@ export const CurriculumFormModal = ({
                 </Select>
               </FormControl>
 
-              {semester.subjects.map((subject: any, subjIndex: number) => (
+              <FormControl sx={{ minWidth: 240, mb: 2 }}>
+                <InputLabel size="small">Filtruj przedmioty po katedrze</InputLabel>
+                <Select
+                  value={selectedDepartmentId}
+                  label="Filtruj przedmioty po katedrze"
+                  onChange={(e) => setSelectedDepartmentId(e.target.value)}
+                  size="small"
+                >
+                  <MenuItem value="all">Wszystkie katedry</MenuItem>
+                  {departments.map((dep) => (
+                    <MenuItem
+                      key={dep.id}
+                      value={dep.id}
+                    >
+                      {dep.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {(semester.subjects || []).map((subject: any, subjIndex: number) => (
                 <Stack
                   direction="row"
                   spacing={1}
                   key={subjIndex}
                   alignItems="center"
-                  sx={{ mt: 2 }}
+                  sx={{ mb: 2 }}
                 >
-                  <FormControl
-                    size="small"
-                    sx={{ minWidth: 220 }}
-                  >
-                    <InputLabel>Przedmiot</InputLabel>
-                    <Select
-                      value={subject.subjectId}
-                      onChange={(e) => handleSubjectChange(semIndex, subjIndex, 'subjectId', e.target.value)}
-                    >
-                      {subjectsList.map((s) => (
-                        <MenuItem
-                          key={s.id}
-                          value={s.id}
-                        >
-                          {s.name}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
-                  <FormControl
-                    size="small"
-                    sx={{ minWidth: 220 }}
-                  >
-                    <InputLabel>Prowadzący</InputLabel>
-                    <Select
-                      value={subject.lecturerId}
-                      onChange={(e) => handleSubjectChange(semIndex, subjIndex, 'lecturerId', e.target.value)}
-                    >
-                      {lecturersList.map((l) => (
-                        <MenuItem
-                          key={l.id}
-                          value={l.id}
-                        >
-                          {l.displayName}
-                        </MenuItem>
-                      ))}
-                    </Select>
-                  </FormControl>
+                  <Autocomplete
+                    options={filteredAndSortedSubjects}
+                    getOptionLabel={(option) => option.name}
+                    value={subjectsList.find((s) => s.id === subject.subjectId) || null}
+                    onChange={(_, newValue) =>
+                      handleSubjectChange(semIndex, subjIndex, 'subjectId', newValue?.id || '')
+                    }
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Przedmiot"
+                        size="small"
+                      />
+                    )}
+                    sx={{ flex: 3 }}
+                  />
+                  <Autocomplete
+                    options={sortedLecturers}
+                    getOptionLabel={(option) => option.displayName}
+                    value={lecturersList.find((l) => l.id === subject.lecturerId) || null}
+                    onChange={(_, newValue) =>
+                      handleSubjectChange(semIndex, subjIndex, 'lecturerId', newValue?.id || '')
+                    }
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Prowadzący"
+                        size="small"
+                      />
+                    )}
+                    sx={{ flex: 3 }}
+                  />
                   <FormControl
                     size="small"
                     sx={{ minWidth: 120 }}
@@ -221,9 +257,10 @@ export const CurriculumFormModal = ({
                       value={subject.type}
                       onChange={(e) => handleSubjectChange(semIndex, subjIndex, 'type', e.target.value)}
                     >
-                      <MenuItem value="wykład">Wykład</MenuItem>
-                      <MenuItem value="ćwiczenia">Ćwiczenia</MenuItem>
-                      <MenuItem value="laboratorium">Laboratorium</MenuItem>
+                      <MenuItem value="Wykład">Wykład</MenuItem>
+                      <MenuItem value="Ćwiczenia">Ćwiczenia</MenuItem>
+                      <MenuItem value="Laboratorium">Laboratorium</MenuItem>
+                      <MenuItem value="Seminarium">Seminarium</MenuItem>
                     </Select>
                   </FormControl>
                   <TextField
@@ -245,7 +282,7 @@ export const CurriculumFormModal = ({
                   <IconButton
                     onClick={() => removeSubject(semIndex, subjIndex)}
                     color="error"
-                    disabled={semester.subjects.length <= 1}
+                    disabled={(semester.subjects || []).length <= 1}
                   >
                     <RemoveCircleOutlineIcon />
                   </IconButton>

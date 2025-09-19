@@ -19,13 +19,21 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { Link as RouterLink } from 'react-router-dom';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
-import { updateCurriculum, addCurriculum, deleteCurriculum } from '../../features/curriculums/curriculumsService';
-import { getAllLecturers, getSemesters, groupsService } from '../../features/shared/dictionaryService';
+import {
+  updateCurriculum,
+  addCurriculum,
+  deleteCurriculum,
+  getAllSubjects,
+} from '../../features/curriculums/curriculumsService';
+import {
+  getAllLecturers,
+  getSemesters,
+  groupsService,
+  departmentsService,
+} from '../../features/shared/dictionaryService';
 import { CurriculumFormModal } from '../../features/curriculums/components/CurriculumFormModal';
 import toast from 'react-hot-toast';
-import type { Curriculum, Subject, Semester, Group } from '../../features/timetable/types';
-import type { UserProfile } from '../../features/user/userService';
-import { getSubjects } from '../../features/subjects/subjectsService';
+import type { Curriculum, Subject, UserProfile, Semester, Group, Department } from '../../features/timetable/types';
 
 export const ManageCurriculumsPage = () => {
   const [curriculums, setCurriculums] = useState<Curriculum[]>([]);
@@ -33,36 +41,51 @@ export const ManageCurriculumsPage = () => {
   const [lecturers, setLecturers] = useState<UserProfile[]>([]);
   const [semesters, setSemesters] = useState<Semester[]>([]);
   const [_groups, setGroups] = useState<Group[]>([]);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingCurriculum, setEditingCurriculum] = useState<Curriculum | null>(null);
 
   useEffect(() => {
-    // Ustawiamy nasłuch na zmiany w siatkach w czasie rzeczywistym
-    const curriculumsQuery = collection(db, 'curriculums');
-    const unsubscribe = onSnapshot(curriculumsQuery, (snapshot) => {
-      const curriculumsData = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Curriculum));
-      setCurriculums(curriculumsData);
+    // ✅ POPRAWKA: Przebudowana logika pobierania danych
+    const fetchDictionaries = async () => {
+      try {
+        const [subjectsData, lecturersData, semestersData, groupsData, departmentsData] = await Promise.all([
+          getAllSubjects(),
+          getAllLecturers(),
+          getSemesters(),
+          groupsService.getAll(),
+          departmentsService.getAll(),
+        ]);
 
-      // Dane słownikowe pobieramy tylko raz
-      if (loading) {
-        Promise.all([getSubjects(), getAllLecturers(), getSemesters(), groupsService.getAll()])
-          .then(([subjectsData, lecturersData, semestersData, groupsData]) => {
-            // ✅ Sortujemy alfabetycznie wszystkie pobrane listy
-            setSubjects((subjectsData as unknown as Subject[]).sort((a, b) => a.name.localeCompare(b.name, 'pl')));
-            setLecturers(
-              (lecturersData as UserProfile[]).sort((a, b) => a.displayName.localeCompare(b.displayName, 'pl'))
-            );
-            setSemesters(semestersData as Semester[]);
-            setGroups(groupsData as Group[]);
-          })
-          .catch((_error) => toast.error('Wystąpił błąd podczas pobierania danych słownikowych.'))
-          .finally(() => setLoading(false));
+        setSubjects((subjectsData as Subject[]).sort((a, b) => a.name.localeCompare(b.name, 'pl')));
+        setLecturers((lecturersData as UserProfile[]).sort((a, b) => a.displayName.localeCompare(b.displayName, 'pl')));
+        setSemesters(semestersData as Semester[]);
+        setGroups(groupsData as Group[]);
+        setDepartments(departmentsData as Department[]);
+      } catch (error) {
+        toast.error('Wystąpił błąd podczas pobierania danych słownikowych.');
       }
-    });
+    };
 
-    return () => unsubscribe();
-  }, [loading]);
+    fetchDictionaries().then(() => {
+      // Dopiero po pobraniu słowników, ustawiamy nasłuch na siatki
+      const curriculumsQuery = collection(db, 'curriculums');
+      const unsubscribe = onSnapshot(
+        curriculumsQuery,
+        (snapshot) => {
+          const curriculumsData = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Curriculum));
+          setCurriculums(curriculumsData.sort((a, b) => a.programName.localeCompare(b.programName)));
+          setLoading(false);
+        },
+        (_error) => {
+          toast.error('Błąd synchronizacji siatek programowych.');
+          setLoading(false);
+        }
+      );
+      return () => unsubscribe();
+    });
+  }, []);
 
   const handleOpenModal = (curriculum: Curriculum | null) => {
     setEditingCurriculum(curriculum);
@@ -94,7 +117,6 @@ export const ManageCurriculumsPage = () => {
     }
   };
 
-  // Mapy do szybkiego wyszukiwania nazw po ID
   const subjectsMap = useMemo(() => new Map(subjects.map((s) => [s.id, s.name])), [subjects]);
   const lecturersMap = useMemo(() => new Map(lecturers.map((l) => [l.id, l.displayName])), [lecturers]);
 
@@ -137,7 +159,9 @@ export const ManageCurriculumsPage = () => {
                 <Typography sx={{ color: 'text.secondary' }}>{curriculum.academicYear}</Typography>
               </Box>
               <Box>
+                {/* ✅ POPRAWKA: Używamy `onMouseDown`, aby zatrzymać zdarzenie, zanim dotrze do `AccordionSummary` */}
                 <IconButton
+                  onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleOpenModal(curriculum);
@@ -146,6 +170,7 @@ export const ManageCurriculumsPage = () => {
                   <EditIcon />
                 </IconButton>
                 <IconButton
+                  onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => {
                     e.stopPropagation();
                     handleDeleteCurriculum(curriculum.id, curriculum.programName);
@@ -192,7 +217,8 @@ export const ManageCurriculumsPage = () => {
           lecturersList={lecturers}
           semestersList={semesters}
           initialData={editingCurriculum}
-          groups={[]}
+          departments={departments}
+          groups={[]} // Przekazujemy pustą tablicę, jeśli grupy nie są potrzebne w tym modalu
         />
       )}
     </Box>
