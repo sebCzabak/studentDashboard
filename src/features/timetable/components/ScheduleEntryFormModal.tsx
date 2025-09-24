@@ -21,7 +21,7 @@ import {
 import DatePicker, { DateObject } from 'react-multi-date-picker';
 import 'react-multi-date-picker/styles/layouts/mobile.css';
 import { Timestamp } from 'firebase/firestore';
-import type { ScheduleEntry, Group, Room, CurriculumSubject } from '../../../features/timetable/types';
+import type { ScheduleEntry, Group, Room, CurriculumSubject, Specialization } from '../../../features/timetable/types';
 
 interface ScheduleEntryFormModalProps {
   open: boolean;
@@ -31,6 +31,7 @@ interface ScheduleEntryFormModalProps {
   initialData: Partial<ScheduleEntry> & { subject?: CurriculumSubject }; // Typ uniwersalny
   availableGroups: Group[];
   availableRooms: Room[];
+  availableSpecializations: Specialization[];
 }
 
 export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
@@ -41,11 +42,13 @@ export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
   initialData,
   availableGroups,
   availableRooms,
+  availableSpecializations,
 }) => {
   const [groupIds, setGroupIds] = useState<string[]>([]);
   const [roomId, setRoomId] = useState('');
   const [dates, setDates] = useState<DateObject[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedSpecIds, setSelectedSpecIds] = useState<string[]>([]);
 
   const isEditMode = !!initialData.id;
 
@@ -53,6 +56,7 @@ export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
     if (initialData) {
       setGroupIds(initialData.groupIds || []);
       setRoomId(initialData.roomId || '');
+      setSelectedSpecIds(initialData.specializationIds || []);
       if (initialData.specificDates && Array.isArray(initialData.specificDates)) {
         setDates(initialData.specificDates.map((ts) => new DateObject(ts.toDate())));
       } else {
@@ -69,6 +73,7 @@ export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
       groupNames: groupIds.map((id) => availableGroups.find((g) => g.id === id)?.name || ''),
       roomName: availableRooms.find((r) => r.id === roomId)?.name || '',
       specificDates: dates.map((d) => Timestamp.fromDate(d.toDate())),
+      specializationIds: selectedSpecIds,
     };
 
     // Jeśli tworzymy nowy wpis, dodajemy dane z przeciągniętego "klocka"
@@ -145,6 +150,34 @@ export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
                   value={group.id}
                 >
                   {group.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <FormControl fullWidth>
+            <InputLabel>Specjalizacje (opcjonalnie)</InputLabel>
+            <Select<string[]>
+              multiple
+              value={selectedSpecIds}
+              onChange={(e) => setSelectedSpecIds(e.target.value as string[])}
+              input={<OutlinedInput label="Specjalizacje (opcjonalnie)" />}
+              renderValue={(selected) => (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                  {selected.map((id) => (
+                    <Chip
+                      key={id}
+                      label={availableSpecializations.find((s) => s.id === id)?.name || id}
+                    />
+                  ))}
+                </Box>
+              )}
+            >
+              {availableSpecializations.map((spec) => (
+                <MenuItem
+                  key={spec.id}
+                  value={spec.id}
+                >
+                  {spec.name}
                 </MenuItem>
               ))}
             </Select>

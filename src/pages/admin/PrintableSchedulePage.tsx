@@ -112,6 +112,9 @@ export const PrintableSchedulePage = () => {
           fontStyle: 'bold',
           font: 'Roboto',
         },
+        didParseCell: function (data) {
+          data.cell.styles.minCellHeight = 15;
+        },
         didDrawCell: (data) => {
           if (data.cell.section === 'body') {
             data.cell.styles.valign = 'top';

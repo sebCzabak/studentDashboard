@@ -1,5 +1,6 @@
 import { db } from '../../config/firebase';
-import { collection, getDocs, query, orderBy, addDoc, where } from 'firebase/firestore';
+import { collection, doc, updateDoc, deleteDoc, getDocs, query, orderBy, addDoc, where } from 'firebase/firestore';
+import type { Specialization } from '../timetable/types';
 
 export const getGroups = async () => {
   const ref = collection(db, 'groups');
@@ -18,7 +19,18 @@ export const getSpecializationsForGroup = async (groupId: string) => {
 export const addGroup = (data: { name: string }) => addDoc(collection(db, 'groups'), data);
 export const addSpecialization = (data: { name: string; groupId: string }) =>
   addDoc(collection(db, 'specializations'), data);
-export const getAllSpecializations = async () => {
+
+export const getAllSpecializations = async (): Promise<Specialization[]> => {
   const querySnapshot = await getDocs(collection(db, 'specializations'));
-  return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as Specialization[];
+};
+
+export const updateSpecialization = async (id: string, newName: string): Promise<void> => {
+  const specRef = doc(db, 'specializations', id);
+  await updateDoc(specRef, { name: newName });
+};
+
+export const deleteSpecialization = async (id: string): Promise<void> => {
+  const specRef = doc(db, 'specializations', id);
+  await deleteDoc(specRef);
 };

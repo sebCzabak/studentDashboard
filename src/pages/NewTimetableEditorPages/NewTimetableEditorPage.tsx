@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useParams, Link as RouterLink } from 'react-router-dom';
 import { DndContext, type DragEndEvent, type DragStartEvent } from '@dnd-kit/core';
-import { Grid, Box, CircularProgress, Typography, Button, Alert, AlertTitle } from '@mui/material';
+import { Grid, Box, CircularProgress, Typography, Button, Alert, AlertTitle, Paper } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import toast from 'react-hot-toast';
 import { useTimetableData } from './hooks/useTimetableData';
@@ -33,6 +33,7 @@ export const NewTimetableEditorPage = () => {
     lecturerAvailability,
     loading,
     error,
+    specializations,
     addScheduleEntry,
     updateScheduleEntry,
     deleteScheduleEntry,
@@ -44,6 +45,19 @@ export const NewTimetableEditorPage = () => {
   // ✅ Używamy dwóch oddzielnych, jasnych stanów: jeden dla tworzenia, drugi dla edycji
   const [dropData, setDropData] = useState<{ subject: CurriculumSubject; day: DayOfWeek; time: string } | null>(null);
   const [editData, setEditData] = useState<ScheduleEntry | null>(null);
+
+  const specializationLegend = useMemo(() => {
+    const legend: Record<string, number> = {};
+    let count = 1;
+    // Można by to pobierać dynamicznie, ale dla uproszczenia filtrujemy te używane w planie
+    const relevantSpecIds = new Set(scheduleEntries.flatMap((e) => e.specializationIds || []));
+    specializations.forEach((spec) => {
+      if (relevantSpecIds.has(spec.id)) {
+        legend[spec.id] = count++;
+      }
+    });
+    return legend;
+  }, [scheduleEntries, specializations]);
 
   const isPublished = timetable?.status === 'published';
   const studyMode = timetable?.studyMode || 'stacjonarny';
@@ -222,7 +236,6 @@ export const NewTimetableEditorPage = () => {
           spacing={2}
           sx={{ mt: 0.5 }}
         >
-          {/* ✅ POPRAWKA: Używamy poprawnych propsów `item` i `xs`/`md` */}
           <Grid size={{ xs: 12, md: 3 }}>
             <UnscheduledClassesPanel
               subjects={curriculumSubjects}
@@ -239,10 +252,24 @@ export const NewTimetableEditorPage = () => {
               onEntryClick={handleOpenEditModal}
               isReadOnly={isPublished}
               studyMode={studyMode}
-              teachingMode={'stacjonarny'}
             />
           </Grid>
         </Grid>
+        {Object.keys(specializationLegend).length > 0 && (
+          <Paper sx={{ p: 2, mt: 2 }}>
+            <Typography variant="h6">Legenda specjalizacji</Typography>
+            {specializations
+              .filter((s) => specializationLegend[s.id])
+              .map((s) => (
+                <Typography
+                  key={s.id}
+                  variant="body2"
+                >
+                  {specializationLegend[s.id]}. {s.name}
+                </Typography>
+              ))}
+          </Paper>
+        )}
       </Box>
 
       {dropData && (
@@ -265,6 +292,7 @@ export const NewTimetableEditorPage = () => {
           initialData={editData}
           availableGroups={groups}
           availableRooms={rooms}
+          availableSpecializations={[]}
         />
       )}
     </DndContext>

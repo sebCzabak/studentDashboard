@@ -66,6 +66,7 @@ export interface CurriculumSubject {
 }
 
 export interface ScheduleEntry {
+  specializationIds: string[];
   id: string;
   day: DayOfWeek;
   startTime: string;

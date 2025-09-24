@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
@@ -19,6 +19,13 @@ import {
   CircularProgress,
   Tooltip,
   Switch,
+  Tabs,
+  Tab,
+  Grid,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import EditIcon from '@mui/icons-material/Edit';
@@ -26,6 +33,7 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import GridViewIcon from '@mui/icons-material/GridView';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import { TimetableFormModal } from '../../features/timetable/components/TimetableFormModal';
 import {
   createTimetable,
@@ -34,11 +42,12 @@ import {
   updateTimetableStatus,
   copyTimetable,
 } from '../../features/timetable/scheduleService';
+import { exportTimetableToPdf } from '../../features/timetable/pdfExporterService';
 import { groupsService, getSemesters } from '../../features/shared/dictionaryService';
 import { getCurriculums } from '../../features/curriculums/curriculumsService';
 import type { Timetable, Group, Semester, Curriculum } from '../../features/timetable/types';
 
-export const TimetablesListPage = () => {
+export const ManageTimetablesPage = () => {
   const [timetables, setTimetables] = useState<Timetable[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [semesters, setSemesters] = useState<Semester[]>([]);
@@ -47,6 +56,12 @@ export const TimetablesListPage = () => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTimetable, setEditingTimetable] = useState<Timetable | null>(null);
   const navigate = useNavigate();
+
+  const [activeTab, setActiveTab] = useState<'stacjonarny' | 'zaoczne' | 'podyplomowe' | 'anglojęzyczne'>(
+    'stacjonarny'
+  );
+  const [selectedYear, setSelectedYear] = useState<string>('all');
+  const [selectedCurriculumId, setSelectedCurriculumId] = useState<string>('all');
 
   useEffect(() => {
     const timetablesQuery = collection(db, 'timetables');
@@ -60,12 +75,36 @@ export const TimetablesListPage = () => {
             setSemesters(semestersData as Semester[]);
             setCurriculums(curriculumsData as Curriculum[]);
           })
-          .catch((__err) => toast.error('Błąd wczytywania danych słownikowych.'))
+          .catch((_err) => toast.error('Błąd wczytywania danych słownikowych.'))
           .finally(() => setLoading(false));
       }
     });
     return () => unsubscribe();
   }, [loading]);
+
+  const academicYears = useMemo(
+    () => ['all', ...Array.from(new Set(timetables.map((t) => t.academicYear).filter(Boolean)))],
+    [timetables]
+  );
+  const availableCurriculums = useMemo(() => {
+    const allOption: Curriculum = {
+      id: 'all',
+      programName: 'Wszystkie programy',
+      name: '',
+      academicYear: '',
+      semesters: [],
+    };
+    return [allOption, ...curriculums];
+  }, [curriculums]);
+
+  const filteredTimetables = useMemo(() => {
+    return timetables.filter(
+      (t) =>
+        (t.studyMode || 'stacjonarny') === activeTab &&
+        (selectedYear === 'all' || t.academicYear === selectedYear) &&
+        (selectedCurriculumId === 'all' || t.curriculumId === selectedCurriculumId)
+    );
+  }, [timetables, activeTab, selectedYear, selectedCurriculumId]);
 
   const handleSave = async (data: Partial<Timetable>, id?: string) => {
     const promise = id ? updateTimetable(id, data) : createTimetable(data);
@@ -102,7 +141,6 @@ export const TimetablesListPage = () => {
 
   const handleCopy = async (timetableToCopy: Timetable) => {
     const newName = window.prompt('Podaj nową nazwę dla kopii planu:', `${timetableToCopy.name} - Kopia`);
-
     if (newName) {
       const promise = copyTimetable(timetableToCopy.id, newName);
       await toast.promise(promise, {
@@ -140,6 +178,90 @@ export const TimetablesListPage = () => {
           Dodaj nowy plan
         </Button>
       </Box>
+
+      <Paper sx={{ p: 2, mb: 2 }}>
+        <Grid
+          container
+          spacing={2}
+          alignItems="center"
+        >
+          <Grid size={{ xs: 12, lg: 6 }}>
+            <Tabs
+              value={activeTab}
+              onChange={(_, newValue) => setActiveTab(newValue)}
+              variant="scrollable"
+              scrollButtons="auto"
+              allowScrollButtonsMobile
+            >
+              <Tab
+                label="Stacjonarne"
+                value="stacjonarny"
+              />
+              <Tab
+                label="Zaoczne"
+                value="zaoczne"
+              />
+              <Tab
+                label="Podyplomowe"
+                value="podyplomowe"
+              />
+              <Tab
+                label="Anglojęzyczne"
+                value="anglojęzyczne"
+              />
+            </Tabs>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+            <FormControl
+              fullWidth
+              size="small"
+            >
+              <InputLabel>Rok Akademicki</InputLabel>
+              <Select
+                value={selectedYear}
+                label="Rok Akademicki"
+                onChange={(e) => setSelectedYear(e.target.value)}
+              >
+                <MenuItem value="all">Wszystkie</MenuItem>
+                {academicYears.map(
+                  (year) =>
+                    year !== 'all' && (
+                      <MenuItem
+                        key={year}
+                        value={year}
+                      >
+                        {year}
+                      </MenuItem>
+                    )
+                )}
+              </Select>
+            </FormControl>
+          </Grid>
+          <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+            <FormControl
+              fullWidth
+              size="small"
+            >
+              <InputLabel>Program studiów</InputLabel>
+              <Select
+                value={selectedCurriculumId}
+                label="Program studiów"
+                onChange={(e) => setSelectedCurriculumId(e.target.value)}
+              >
+                {availableCurriculums.map((c) => (
+                  <MenuItem
+                    key={c.id}
+                    value={c.id}
+                  >
+                    {c.programName}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+          </Grid>
+        </Grid>
+      </Paper>
+
       <TableContainer component={Paper}>
         <Table>
           <TableHead>
@@ -152,7 +274,7 @@ export const TimetablesListPage = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {timetables.map((tt) => (
+            {filteredTimetables.map((tt) => (
               <TableRow
                 key={tt.id}
                 hover
@@ -190,6 +312,11 @@ export const TimetablesListPage = () => {
                       onClick={() => handleOpenModal(tt)}
                     >
                       <EditIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Eksportuj do PDF">
+                    <IconButton onClick={() => exportTimetableToPdf(tt)}>
+                      <PictureAsPdfIcon />
                     </IconButton>
                   </Tooltip>
                   <Tooltip title="Kopiuj plan">

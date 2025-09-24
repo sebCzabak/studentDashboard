@@ -49,7 +49,6 @@ const DroppableCell: React.FC<{ day: DayOfWeek; time: string; children?: React.R
         border: '1px solid rgba(224, 224, 224, 1)',
         verticalAlign: 'top',
         height: '100px',
-        width: '18%',
         backgroundColor: backgroundColor(),
         transition: 'background-color 0.2s ease-in-out',
       }}
@@ -59,6 +58,7 @@ const DroppableCell: React.FC<{ day: DayOfWeek; time: string; children?: React.R
   );
 };
 
+// ✅ POPRAWKA: Usuwamy `teachingMode` z propsów
 interface TimetableGridProps {
   entries: ScheduleEntry[];
   onEntryClick: (entry: ScheduleEntry) => void;
@@ -89,9 +89,9 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
     for (const slot of availabilitySlots) {
       const startMinutes = timeToMinutes(slot.startTime);
       const endMinutes = timeToMinutes(slot.endTime);
-
       if (startMinutes === null || endMinutes === null) continue;
 
+      // Używamy zaimportowanej stałej TIME_SLOTS
       for (const timeSlot of TIME_SLOTS) {
         const timeMinutes = timeToMinutes(timeSlot.startTime);
         if (timeMinutes !== null && timeMinutes >= startMinutes && timeMinutes < endMinutes) {
