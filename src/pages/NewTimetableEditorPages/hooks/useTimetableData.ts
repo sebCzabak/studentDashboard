@@ -24,6 +24,7 @@ import type {
   Specialization,
 } from '../../../features/timetable/types';
 import type { UserProfile } from '../../../features/user/userService';
+import { specializationsService } from '../../../features/shared/dictionaryService';
 
 interface TimetablePageData {
   timetableData: Timetable;
@@ -42,6 +43,7 @@ const fetchRelatedData = async (timetableId: string): Promise<TimetablePageData>
   const timetableData = { id: timetableSnap.id, ...timetableSnap.data() } as Timetable;
 
   const specializationsSnap = await getDocs(collection(db, 'specializations'));
+  const specializationsData = await specializationsService.getAll();
   const specializations: Specialization[] = specializationsSnap.docs.map(
     (doc) => ({ id: doc.id, ...doc.data() } as Specialization)
   );
@@ -121,7 +123,14 @@ const fetchRelatedData = async (timetableId: string): Promise<TimetablePageData>
   const roomsSnap = await getDocs(collection(db, 'rooms'));
   const rooms: Room[] = roomsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Room));
 
-  return { timetableData, curriculumSubjects, groups, rooms, lecturerAvailability, specializations };
+  return {
+    timetableData,
+    curriculumSubjects,
+    groups,
+    rooms,
+    lecturerAvailability,
+    specializations: specializationsData as Specialization[],
+  };
 };
 
 export const useTimetableData = (timetableId: string | undefined) => {

@@ -59,6 +59,13 @@ export const NewTimetableEditorPage = () => {
     return legend;
   }, [scheduleEntries, specializations]);
 
+  const availableSpecializationsForTimetable = useMemo(() => {
+    // Pobieramy ID grup przypisanych do tego planu
+    const relevantGroupIds = new Set(timetable?.groupIds || []);
+    // Zwracamy tylko te specjalizacje, które należą do tych grup
+    return specializations.filter((spec) => relevantGroupIds.has(spec.groupId));
+  }, [timetable, specializations]);
+
   const isPublished = timetable?.status === 'published';
   const studyMode = timetable?.studyMode || 'stacjonarny';
 
@@ -292,7 +299,7 @@ export const NewTimetableEditorPage = () => {
           initialData={editData}
           availableGroups={groups}
           availableRooms={rooms}
-          availableSpecializations={[]}
+          availableSpecializations={availableSpecializationsForTimetable}
         />
       )}
     </DndContext>
