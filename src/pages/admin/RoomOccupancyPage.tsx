@@ -15,6 +15,8 @@ import {
   Select,
   MenuItem,
   Grid,
+  OutlinedInput,
+  Chip,
 } from '@mui/material';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../config/firebase';
@@ -29,7 +31,9 @@ export const RoomOccupancyPage = () => {
   const [allTimetables, setAllTimetables] = useState<Timetable[]>([]);
   const [allRooms, setAllRooms] = useState<Room[]>([]);
   const [semesters, setSemesters] = useState<Semester[]>([]);
-  const [selectedSemesterId, setSelectedSemesterId] = useState<string>('');
+
+  // ✅ POPRAWKA: Zmiana na tablicę stringów dla wielokrotnego wyboru
+  const [selectedSemesterIds, setSelectedSemesterIds] = useState<string[]>([]);
   const [selectedDay, setSelectedDay] = useState<DayOfWeek>('Poniedziałek');
 
   useEffect(() => {
@@ -51,8 +55,9 @@ export const RoomOccupancyPage = () => {
         );
         setSemesters(semestersData as Semester[]);
 
+        // Domyślnie zaznaczamy pierwszy semestr na liście
         if (semestersData.length > 0) {
-          setSelectedSemesterId(semestersData[0].id);
+          setSelectedSemesterIds([semestersData[0].id]);
         }
       } catch (err) {
         toast.error('Błąd pobierania danych do raportu.');
@@ -64,32 +69,26 @@ export const RoomOccupancyPage = () => {
     fetchData();
   }, []);
 
-  // ✅ POPRAWKA: Logika jest teraz bardziej zaawansowana.
-  // Zamiast przechowywać jeden wpis, przechowuje tablicę wpisów dla każdej komórki.
   const occupancyData = useMemo(() => {
-    if (!selectedSemesterId) return {};
+    // ✅ POPRAWKA: Sprawdzamy, czy tablica wybranych semestrów nie jest pusta
+    if (selectedSemesterIds.length === 0) return {};
 
-    const timetablesInSemester = allTimetables.filter((t) => t.semesterId === selectedSemesterId);
+    // ✅ POPRAWKA: Filtrujemy plany, sprawdzając, czy ich `semesterId` zawiera się w tablicy wybranych
+    const timetablesInSemester = allTimetables.filter((t) => selectedSemesterIds.includes(t.semesterId));
     const timetableIds = new Set(timetablesInSemester.map((t) => t.id));
 
     const filteredEntries = allEntries.filter((e) => timetableIds.has(e.timetableId) && e.day === selectedDay);
 
-    // Struktura danych: { '08:00': { 'sala_id': [entry1, entry2], ... }, ... }
     const grid: Record<string, Record<string, ScheduleEntry[]>> = {};
     filteredEntries.forEach((entry) => {
       const startTime = entry.startTime;
       const roomId = entry.roomId;
-
-      if (!grid[startTime]) {
-        grid[startTime] = {};
-      }
-      if (!grid[startTime][roomId]) {
-        grid[startTime][roomId] = [];
-      }
+      if (!grid[startTime]) grid[startTime] = {};
+      if (!grid[startTime][roomId]) grid[startTime][roomId] = [];
       grid[startTime][roomId].push(entry);
     });
     return grid;
-  }, [selectedSemesterId, selectedDay, allEntries, allTimetables]);
+  }, [selectedSemesterIds, selectedDay, allEntries, allTimetables]);
 
   if (loading) return <CircularProgress />;
 
@@ -110,11 +109,24 @@ export const RoomOccupancyPage = () => {
         >
           <Grid size={{ xs: 12, sm: 6 }}>
             <FormControl fullWidth>
-              <InputLabel>Wybierz semestr</InputLabel>
-              <Select
-                value={selectedSemesterId}
-                label="Wybierz semestr"
-                onChange={(e) => setSelectedSemesterId(e.target.value)}
+              <InputLabel>Wybierz semestry</InputLabel>
+              {/* ✅ POPRAWKA: Komponent Select jest teraz typu `multiple` */}
+              <Select<string[]>
+                multiple
+                value={selectedSemesterIds}
+                label="Wybierz semestry"
+                onChange={(e) => setSelectedSemesterIds(e.target.value as string[])}
+                input={<OutlinedInput label="Wybierz semestry" />}
+                renderValue={(selected) => (
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                    {selected.map((id) => (
+                      <Chip
+                        key={id}
+                        label={semesters.find((s) => s.id === id)?.name || id}
+                      />
+                    ))}
+                  </Box>
+                )}
               >
                 {semesters.map((s) => (
                   <MenuItem
@@ -175,18 +187,15 @@ export const RoomOccupancyPage = () => {
                 {allRooms.map((room) => {
                   const entriesInCell = occupancyData[timeSlot.startTime]?.[room.id] || [];
                   const isConflict = entriesInCell.length > 1;
-
                   return (
                     <TableCell
                       key={room.id}
                       sx={{
                         border: '1px solid #eee',
                         p: 0.5,
-                        // ✅ POPRAWKA: Logika kolorowania
                         backgroundColor: isConflict ? 'error.light' : entriesInCell.length > 0 ? '#e3f2fd' : 'inherit',
                       }}
                     >
-                      {/* ✅ POPRAWKA: Mapujemy po tablicy wpisów w komórce */}
                       {entriesInCell.map((entry) => (
                         <Paper
                           key={entry.id}
