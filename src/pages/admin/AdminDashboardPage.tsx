@@ -34,6 +34,7 @@ import EventNoteIcon from '@mui/icons-material/EventNote';
 import MenuBookIcon from '@mui/icons-material/MenuBook';
 import AccountBoxIcon from '@mui/icons-material/AccountBox';
 import AssignmentIcon from '@mui/icons-material/AddComment';
+import SchoolIcon from '@mui/icons-material/School';
 
 // Definicja kafelków z przypisanymi rolami
 const allAdminTiles = [
@@ -154,6 +155,14 @@ const allAdminTiles = [
     description: 'Dodawanie użytkowników, dyspozycyjność.',
     icon: <AccountBoxIcon sx={{ fontSize: 40 }} />,
     path: '/admin/users',
+    section: 'Konfiguracja',
+    allowedRoles: ['admin'],
+  },
+  {
+    title: 'Obłożenie sal',
+    description: 'Sprawdź obłożenie sal w danym dniu.',
+    icon: <SchoolIcon sx={{ fontSize: 40 }} />,
+    path: '/admin/reports/room-occupancy',
     section: 'Konfiguracja',
     allowedRoles: ['admin'],
   },

@@ -40,6 +40,7 @@ import { MyTimetablePage } from './pages/MyTimetablePage';
 import { ManageUsersPage } from './pages/admin/ManageUsersPage';
 import { LecturerWorkloadReportPage } from './pages/admin/LecturersWorkloadReportPage';
 import { PrintableSchedulePage } from './pages/admin/PrintableSchedulePage';
+import { RoomOccupancyPage } from './pages/admin/RoomOccupancyPage';
 
 function App() {
   return (
@@ -186,6 +187,10 @@ function App() {
             <Route
               path="schedule-view/:userId"
               element={<PrintableSchedulePage />}
+            />
+            <Route
+              path="reports/room-occupancy"
+              element={<RoomOccupancyPage />}
             />
           </Route>
           {/* ================================================================== */}
