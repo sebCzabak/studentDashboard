@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
@@ -47,7 +47,7 @@ import { groupsService, getSemesters } from '../../features/shared/dictionarySer
 import { getCurriculums } from '../../features/curriculums/curriculumsService';
 import type { Timetable, Group, Semester, Curriculum } from '../../features/timetable/types';
 
-export const ManageTimetablesPage = () => {
+export const TimetablesListPage = () => {
   const [timetables, setTimetables] = useState<Timetable[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [semesters, setSemesters] = useState<Semester[]>([]);
