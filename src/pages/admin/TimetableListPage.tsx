@@ -34,6 +34,7 @@ import GridViewIcon from '@mui/icons-material/GridView';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import TableChartIcon from '@mui/icons-material/TableChart';
 import { TimetableFormModal } from '../../features/timetable/components/TimetableFormModal';
 import {
   createTimetable,
@@ -42,10 +43,11 @@ import {
   updateTimetableStatus,
   copyTimetable,
 } from '../../features/timetable/scheduleService';
-import { exportTimetableToPdf } from '../../features/timetable/pdfExporterService';
+import { exportTimetableToPdf } from '../../features/timetable/exportService';
 import { groupsService, getSemesters } from '../../features/shared/dictionaryService';
 import { getCurriculums } from '../../features/curriculums/curriculumsService';
 import type { Timetable, Group, Semester, Curriculum } from '../../features/timetable/types';
+import { exportTimetableToExcel } from '../../features/timetable/exportService';
 
 export const TimetablesListPage = () => {
   const [timetables, setTimetables] = useState<Timetable[]>([]);
@@ -317,6 +319,11 @@ export const TimetablesListPage = () => {
                   <Tooltip title="Eksportuj do PDF">
                     <IconButton onClick={() => exportTimetableToPdf(tt)}>
                       <PictureAsPdfIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Eksportuj do Excel/Google Sheets">
+                    <IconButton onClick={() => exportTimetableToExcel(tt)}>
+                      <TableChartIcon />
                     </IconButton>
                   </Tooltip>
                   <Tooltip title="Kopiuj plan">

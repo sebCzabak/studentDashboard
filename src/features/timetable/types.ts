@@ -129,3 +129,11 @@ export interface DegreeLevel {
   id: string;
   name: string;
 }
+export interface WorkloadRow {
+  lecturerId: string;
+  lecturerName: string;
+  subjectName: string;
+  studyMode: string;
+  hours: { [key: string]: number };
+  totalHours: number;
+}

@@ -6,7 +6,7 @@ import type { ScheduleEntry, DayOfWeek, LecturerAvailability } from '../../featu
 import { TIME_SLOTS } from '../../features/timetable/constants';
 
 const STUDY_MODE_DAYS: Record<string, DayOfWeek[]> = {
-  stacjonarny: ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek'],
+  stacjonarny: ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek', 'Sobota', 'Niedziela'],
   zaoczne: ['Sobota', 'Niedziela'],
   podyplomowe: ['Sobota', 'Niedziela'],
   anglojęzyczne: ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek'],

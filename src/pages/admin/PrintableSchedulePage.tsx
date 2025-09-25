@@ -19,12 +19,28 @@ import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { getEntriesForLecturer } from '../../features/timetable/scheduleService';
 import { getUserProfileData } from '../../features/user/userService';
-import type { ScheduleEntry } from '../../features/timetable/types';
-import type { UserProfile } from '../../features/user/userService';
+import type { ScheduleEntry, UserProfile } from '../../features/timetable/types';
 import toast from 'react-hot-toast';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { DAYS, TIME_SLOTS } from '../../features/timetable/constants';
+
+// Funkcja pomocnicza do konwersji obrazu na Base64
+const imageToBase64 = (url: string): Promise<string> =>
+  fetch(url)
+    .then((response) => {
+      if (!response.ok) throw new Error(`Nie można załadować obrazu: ${url}`);
+      return response.blob();
+    })
+    .then(
+      (blob) =>
+        new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        })
+    );
 
 export const PrintableSchedulePage = () => {
   const { userId } = useParams<{ userId: string }>();
@@ -58,14 +74,14 @@ export const PrintableSchedulePage = () => {
     try {
       const doc = new jsPDF({ orientation: 'landscape' });
 
-      const [fontResponse, boldFontResponse] = await Promise.all([
+      const [logoBase64, fontResponse, boldFontResponse] = await Promise.all([
+        imageToBase64('/images/logo-watermark.png'),
         fetch('/fonts/Roboto-Regular.ttf'),
         fetch('/fonts/Roboto-Bold.ttf'),
       ]);
 
       const fontBuffer = await fontResponse.arrayBuffer();
       const boldFontBuffer = await boldFontResponse.arrayBuffer();
-
       const fontBase64 = btoa(new Uint8Array(fontBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ''));
       const boldFontBase64 = btoa(
         new Uint8Array(boldFontBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
@@ -73,11 +89,9 @@ export const PrintableSchedulePage = () => {
 
       doc.addFileToVFS('Roboto-Regular.ttf', fontBase64);
       doc.addFont('Roboto-Regular.ttf', 'Roboto', 'normal');
-
       doc.addFileToVFS('Roboto-Bold.ttf', boldFontBase64);
       doc.addFont('Roboto-Bold.ttf', 'Roboto', 'bold');
-
-      doc.setFont('Roboto', 'normal');
+      doc.setFont('Roboto');
 
       const tableBody = [];
       for (const timeSlot of TIME_SLOTS) {
@@ -101,23 +115,22 @@ export const PrintableSchedulePage = () => {
         head: [['Godziny', ...DAYS]],
         body: tableBody,
         theme: 'grid',
-        styles: {
-          font: 'Roboto',
-          fontSize: 8,
-          cellPadding: 2,
-        },
-        headStyles: {
-          fillColor: [44, 62, 80],
-          textColor: 255,
-          fontStyle: 'bold',
-          font: 'Roboto',
-        },
-        didParseCell: function (data) {
-          data.cell.styles.minCellHeight = 15;
-        },
-        didDrawCell: (data) => {
-          if (data.cell.section === 'body') {
-            data.cell.styles.valign = 'top';
+        styles: { font: 'Roboto', fontSize: 8, cellPadding: 2 },
+        headStyles: { font: 'Roboto', fontStyle: 'bold', fillColor: [44, 62, 80] },
+        didDrawPage: (data) => {
+          try {
+            const pageWidth = doc.internal.pageSize.getWidth();
+            const pageHeight = doc.internal.pageSize.getHeight();
+            const imgWidth = 100;
+            const imgHeight = 100;
+            const x = (pageWidth - imgWidth) / 2;
+            const y = (pageHeight - imgHeight) / 2;
+            doc.saveGraphicsState();
+            doc.setGState(new (doc as any).GState({ opacity: 0.05 }));
+            doc.addImage(logoBase64, 'PNG', x, y, imgWidth, imgHeight);
+            doc.restoreGraphicsState();
+          } catch (e) {
+            console.warn('Błąd podczas dodawania znaku wodnego:', e);
           }
         },
       });

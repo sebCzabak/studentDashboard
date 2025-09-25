@@ -17,6 +17,7 @@ import {
   Grid,
   OutlinedInput,
   Chip,
+  Button,
 } from '@mui/material';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../config/firebase';
@@ -24,6 +25,8 @@ import type { ScheduleEntry, Timetable, Room, Semester, DayOfWeek } from '../../
 import { getSemesters } from '../../features/shared/dictionaryService';
 import { TIME_SLOTS, DAYS } from '../../features/timetable/constants';
 import toast from 'react-hot-toast';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import { Link as RouterLink } from 'react-router-dom';
 
 export const RoomOccupancyPage = () => {
   const [loading, setLoading] = useState(true);
@@ -32,7 +35,6 @@ export const RoomOccupancyPage = () => {
   const [allRooms, setAllRooms] = useState<Room[]>([]);
   const [semesters, setSemesters] = useState<Semester[]>([]);
 
-  // ✅ POPRAWKA: Zmiana na tablicę stringów dla wielokrotnego wyboru
   const [selectedSemesterIds, setSelectedSemesterIds] = useState<string[]>([]);
   const [selectedDay, setSelectedDay] = useState<DayOfWeek>('Poniedziałek');
 
@@ -94,6 +96,13 @@ export const RoomOccupancyPage = () => {
 
   return (
     <Box sx={{ p: 3 }}>
+      <Button
+        component={RouterLink}
+        to="/admin"
+        startIcon={<ArrowBackIcon />}
+      >
+        Wróć do pulpitu
+      </Button>
       <Typography
         variant="h4"
         gutterBottom

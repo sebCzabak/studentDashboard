@@ -21,28 +21,17 @@ import {
   Chip,
 } from '@mui/material';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import { Link as RouterLink } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../config/firebase';
-import type { ScheduleEntry, Timetable, Semester } from '../../features/timetable/types';
+import type { ScheduleEntry, Timetable, Semester, UserProfile, WorkloadRow } from '../../features/timetable/types';
 import { getSemesters, getAllLecturers } from '../../features/shared/dictionaryService';
-import type { UserProfile } from '../../features/user/userService';
-import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import { exportWorkloadReportToPdf } from '../../features/timetable/exportService';
 import * as XLSX from 'xlsx';
-import VisibilityIcon from '@mui/icons-material/Visibility';
-import { Link as RouterLink } from 'react-router-dom';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-
-// Definicja typu dla przetworzonych danych w raporcie
-interface WorkloadRow {
-  lecturerId: string;
-  lecturerName: string;
-  subjectName: string;
-  studyMode: string;
-  hours: { [key: string]: number };
-  totalHours: number;
-}
 
 // Mapowanie dni tygodnia na potrzeby sortowania
 const dayOrder: { [key: string]: number } = {
@@ -113,7 +102,6 @@ export const LecturerWorkloadReportPage = () => {
     entriesToReport.forEach((entry) => {
       const timetable = filteredTimetables.find((t) => t.id === entry.timetableId);
       if (!timetable) return;
-
       const key = `${entry.lecturerId}-${entry.subjectId}-${timetable.studyMode}`;
       if (!aggregation[key]) {
         aggregation[key] = {
@@ -131,20 +119,17 @@ export const LecturerWorkloadReportPage = () => {
       aggregation[key].hours[entryType] = (aggregation[key].hours[entryType] || 0) + hoursPerBlock;
       aggregation[key].totalHours += hoursPerBlock;
     });
-
     return Object.values(aggregation).sort((a, b) => a.lecturerName.localeCompare(b.lecturerName));
   }, [selectedSemesterId, selectedAcademicYear, selectedLecturerId, allEntries, allTimetables]);
 
   const lecturerDetailData = useMemo(() => {
     if (selectedLecturerId === 'all' || !reportData) return [];
-
     const filteredTimetables = allTimetables.filter(
       (t) =>
         (selectedSemesterId === 'all' || t.semesterId === selectedSemesterId) &&
         (selectedAcademicYear === 'all' || t.academicYear === selectedAcademicYear)
     );
     const filteredTimetableIds = new Set(filteredTimetables.map((t) => t.id));
-
     return allEntries
       .filter((e) => e.lecturerId === selectedLecturerId && filteredTimetableIds.has(e.timetableId))
       .sort((a, b) => {
@@ -155,32 +140,21 @@ export const LecturerWorkloadReportPage = () => {
   }, [selectedLecturerId, reportData, allEntries, allTimetables, selectedSemesterId, selectedAcademicYear]);
 
   const handleExport = (format: 'xlsx' | 'pdf') => {
-    const headers = [
-      'Prowadzący',
-      'Przedmiot',
-      'Tryb',
-      'Wykłady (h)',
-      'Ćwiczenia (h)',
-      'Laboratoria (h)',
-      'Seminaria (h)',
-      'Suma (h)',
-    ];
-    const body = reportData.map((row) => [
-      row.lecturerName,
-      row.subjectName,
-      row.studyMode,
-      row.hours['Wykład'] || 0,
-      row.hours['Ćwiczenia'] || 0,
-      row.hours['Laboratorium'] || 0,
-      row.hours['Seminarium'] || 0,
-      row.totalHours,
-    ]);
-
-    const semesterName = semesters.find((s) => s.id === selectedSemesterId)?.name || 'wszystkie_semestry';
-    const yearName = selectedAcademicYear === 'all' ? 'wszystkie_lata' : (selectedAcademicYear || '').replace('/', '-');
-    const fileName = `raport_obciazenia_${yearName}_${semesterName.replace(/ /g, '_')}`;
+    const semesterName = semesters.find((s) => s.id === selectedSemesterId)?.name || 'wszystkie';
+    const yearName = selectedAcademicYear === 'all' ? 'wszystkie' : selectedAcademicYear;
+    const fileNameDetails = { year: yearName, semester: semesterName };
 
     if (format === 'xlsx') {
+      // Logika dla Excela jest prosta, więc może zostać w komponencie
+      const headers = ['Prowadzący', 'Przedmiot', 'Tryb', ...allTypes.map((t) => `${t} (h)`), 'Suma (h)'];
+      const body = reportData.map((row) => [
+        row.lecturerName,
+        row.subjectName,
+        row.studyMode,
+        ...allTypes.map((type) => row.hours[type] || 0),
+        row.totalHours,
+      ]);
+      const fileName = `raport_obciazenia_${yearName.replace('/', '-')}_${semesterName.replace(/ /g, '_')}`;
       const worksheet = XLSX.utils.aoa_to_sheet([headers, ...body]);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, worksheet, 'Raport Obciążenia');
@@ -188,12 +162,8 @@ export const LecturerWorkloadReportPage = () => {
     }
 
     if (format === 'pdf') {
-      const doc = new jsPDF();
-      (doc as any).autoTable({
-        head: [headers],
-        body: body,
-      });
-      doc.save(`${fileName}.pdf`);
+      // Wywołujemy naszą nową, dedykowaną funkcję z serwisu
+      exportWorkloadReportToPdf(reportData, allTypes, fileNameDetails);
     }
   };
 
@@ -303,7 +273,7 @@ export const LecturerWorkloadReportPage = () => {
             <Button
               variant="outlined"
               onClick={() => handleExport('pdf')}
-              startIcon={<FileDownloadIcon />}
+              startIcon={<PictureAsPdfIcon />}
               disabled={reportData.length === 0}
               sx={{ mt: { xs: 1, sm: 0 } }}
             >
@@ -367,20 +337,22 @@ export const LecturerWorkloadReportPage = () => {
 
       {selectedLecturerId !== 'all' && lecturerDetailData.length > 0 && (
         <Box sx={{ mt: 4 }}>
-          <Typography
-            variant="h5"
-            gutterBottom
-          >
-            Szczegółowy harmonogram dla: {allLecturers.find((l) => l.id === selectedLecturerId)?.displayName}
-          </Typography>
-          <Button
-            variant="outlined"
-            component={RouterLink}
-            to={`/admin/schedule-view/${selectedLecturerId}`} // Dynamiczny link
-            startIcon={<VisibilityIcon />}
-          >
-            Pokaż widok planu
-          </Button>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+            <Typography
+              variant="h5"
+              gutterBottom
+            >
+              Szczegółowy harmonogram dla: {allLecturers.find((l) => l.id === selectedLecturerId)?.displayName}
+            </Typography>
+            <Button
+              variant="outlined"
+              component={RouterLink}
+              to={`/admin/schedule-view/${selectedLecturerId}`}
+              startIcon={<VisibilityIcon />}
+            >
+              Pokaż widok planu
+            </Button>
+          </Box>
           <TableContainer component={Paper}>
             <Table size="small">
               <TableHead>
