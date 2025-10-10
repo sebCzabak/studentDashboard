@@ -90,7 +90,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setRole(null);
     setAccessToken(null);
     setProfileInfo(null);
-    setPermissions([]); // Poprawka: Czyścimy uprawnienia
+    setPermissions([]);
   };
 
   if (loading) {

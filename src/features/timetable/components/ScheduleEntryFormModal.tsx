@@ -15,23 +15,33 @@ import {
   Box,
   OutlinedInput,
   Chip,
+  ToggleButtonGroup,
+  ToggleButton,
+  FormGroup,
+  FormControlLabel,
+  Checkbox,
   type SelectChangeEvent,
-  CircularProgress,
+  Paper,
 } from '@mui/material';
-import DatePicker, { DateObject } from 'react-multi-date-picker';
-import 'react-multi-date-picker/styles/layouts/mobile.css';
-import { Timestamp } from 'firebase/firestore';
-import type { ScheduleEntry, Group, Room, CurriculumSubject, Specialization } from '../../../features/timetable/types';
+import type {
+  ScheduleEntry,
+  Group,
+  Room,
+  Session,
+  Specialization,
+  SemesterDate,
+} from '../../../features/timetable/types';
 
 interface ScheduleEntryFormModalProps {
   open: boolean;
   onClose: () => void;
   onSave: (data: Partial<ScheduleEntry>) => Promise<void>;
-  onDelete?: () => Promise<void>; // Opcjonalne dla trybu tworzenia
-  initialData: Partial<ScheduleEntry> & { subject?: CurriculumSubject }; // Typ uniwersalny
+  onDelete?: () => Promise<void>;
+  initialData: Partial<ScheduleEntry>;
   availableGroups: Group[];
   availableRooms: Room[];
   availableSpecializations: Specialization[];
+  availableSessions: SemesterDate[];
 }
 
 export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
@@ -43,58 +53,52 @@ export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
   availableGroups,
   availableRooms,
   availableSpecializations,
+  availableSessions,
 }) => {
   const [groupIds, setGroupIds] = useState<string[]>([]);
   const [roomId, setRoomId] = useState('');
-  const [dates, setDates] = useState<DateObject[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [selectedSpecIds, setSelectedSpecIds] = useState<string[]>([]);
-
-  const isEditMode = !!initialData.id;
+  const [specializationIds, setSpecializationIds] = useState<string[]>([]);
+  const [sessionIds, setSessionIds] = useState<string[]>([]);
+  const [format, setFormat] = useState<'stacjonarny' | 'online'>('stacjonarny');
 
   useEffect(() => {
     if (initialData) {
-      setGroupIds(initialData.groupIds || []);
-      setRoomId(initialData.roomId || '');
-      setSelectedSpecIds(initialData.specializationIds || []);
-      if (initialData.specificDates && Array.isArray(initialData.specificDates)) {
-        setDates(initialData.specificDates.map((ts) => new DateObject(ts.toDate())));
-      } else {
-        setDates([]);
-      }
-    }
-  }, [initialData]);
+      const validGroupIds = (initialData.groupIds || []).filter((id) => availableGroups.some((g) => g.id === id));
+      setGroupIds(validGroupIds);
 
-  const handleSave = async () => {
-    setLoading(true);
-    const dataToSave: Partial<ScheduleEntry> = {
+      const roomExists = availableRooms.some((r) => r.id === initialData.roomId);
+      setRoomId(roomExists ? initialData.roomId! : '');
+
+      const validSpecIds = (initialData.specializationIds || []).filter((id) =>
+        availableSpecializations.some((s) => s.id === id)
+      );
+      setSpecializationIds(validSpecIds);
+
+      // Pole `date` nie jest już używane, więc nie musimy go ustawiać
+      setSessionIds(initialData.sessionIds || []);
+
+      setFormat(initialData.format || 'stacjonarny');
+    }
+  }, [initialData, availableGroups, availableRooms, availableSpecializations]);
+
+  const handleSave = () => {
+    const entryData: Partial<ScheduleEntry> = {
       groupIds,
       roomId,
+      specializationIds,
+      sessionIds,
+      format,
       groupNames: groupIds.map((id) => availableGroups.find((g) => g.id === id)?.name || ''),
       roomName: availableRooms.find((r) => r.id === roomId)?.name || '',
-      specificDates: dates.map((d) => Timestamp.fromDate(d.toDate())),
-      specializationIds: selectedSpecIds,
     };
-
-    // Jeśli tworzymy nowy wpis, dodajemy dane z przeciągniętego "klocka"
-    if (!isEditMode && initialData.subject) {
-      Object.assign(dataToSave, {
-        day: initialData.day,
-        startTime: initialData.startTime,
-        endTime: initialData.endTime,
-        subjectId: initialData.subject.subjectId,
-        subjectName: initialData.subject.subjectName,
-        lecturerId: initialData.subject.lecturerId,
-        lecturerName: initialData.subject.lecturerName,
-        type: initialData.subject.type,
-        curriculumSubjectId: initialData.subject.id,
-        timetableId: initialData.timetableId,
-      });
-    }
-
-    await onSave(dataToSave);
-    setLoading(false);
+    onSave(entryData);
   };
+
+  const handleSessionToggle = (sessionId: string) => {
+    setSessionIds((prev) => (prev.includes(sessionId) ? prev.filter((id) => id !== sessionId) : [...prev, sessionId]));
+  };
+
+  const isSessionBased = availableSessions && availableSessions.length > 0;
 
   return (
     <Dialog
@@ -103,26 +107,22 @@ export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
       fullWidth
       maxWidth="sm"
     >
-      <DialogTitle>{isEditMode ? 'Edytuj Zajęcia' : 'Dodaj Nowe Zajęcia'}</DialogTitle>
+      <DialogTitle>{initialData.id ? 'Edytuj Zajęcia' : 'Dodaj Nowe Zajęcia'}</DialogTitle>
       <DialogContent>
         <Stack
           spacing={2}
           sx={{ pt: 2 }}
         >
-          <Typography variant="h6">{initialData.subjectName || initialData.subject?.subjectName}</Typography>
+          <Typography variant="h6">{initialData.subjectName}</Typography>
           <Typography
             variant="body2"
             color="text.secondary"
           >
-            Prowadzący: {initialData.lecturerName || initialData.subject?.lecturerName}
+            Prowadzący: {initialData.lecturerName}
           </Typography>
-          <Typography
-            variant="body2"
-            color="text.secondary"
-          >
-            Termin: {initialData.day}, {initialData.startTime}
-          </Typography>
+
           <Divider sx={{ my: 1 }} />
+
           <FormControl
             fullWidth
             required
@@ -138,7 +138,7 @@ export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
                   {selected.map((id) => (
                     <Chip
                       key={id}
-                      label={availableGroups.find((g) => g.id === id)?.name || id}
+                      label={availableGroups.find((g) => g.id === id)?.name || `(Usunięta)`}
                     />
                   ))}
                 </Box>
@@ -154,34 +154,7 @@ export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
               ))}
             </Select>
           </FormControl>
-          <FormControl fullWidth>
-            <InputLabel>Specjalizacje (opcjonalnie)</InputLabel>
-            <Select<string[]>
-              multiple
-              value={selectedSpecIds}
-              onChange={(e) => setSelectedSpecIds(e.target.value as string[])}
-              input={<OutlinedInput label="Specjalizacje (opcjonalnie)" />}
-              renderValue={(selected) => (
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                  {selected.map((id) => (
-                    <Chip
-                      key={id}
-                      label={availableSpecializations.find((s) => s.id === id)?.name || id}
-                    />
-                  ))}
-                </Box>
-              )}
-            >
-              {availableSpecializations.map((spec) => (
-                <MenuItem
-                  key={spec.id}
-                  value={spec.id}
-                >
-                  {spec.name}
-                </MenuItem>
-              ))}
-            </Select>
-          </FormControl>
+
           <FormControl
             fullWidth
             required
@@ -202,21 +175,87 @@ export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
               ))}
             </Select>
           </FormControl>
-          <Divider sx={{ my: 2 }} />
-          <Typography
-            variant="h6"
-            gutterBottom
-          >
-            Konkretne terminy zajęć (opcjonalnie)
-          </Typography>
-          <DatePicker
-            multiple
-            value={dates}
-            onChange={setDates}
-            format="DD/MM/YYYY"
-            containerClassName="rmdp-mobile"
-            style={{ width: '100%' }}
-          />
+
+          <FormControl fullWidth>
+            <InputLabel>Specjalizacje (opcjonalnie)</InputLabel>
+            <Select<string[]>
+              multiple
+              value={specializationIds}
+              onChange={(e) => setSpecializationIds(e.target.value as string[])}
+              input={<OutlinedInput label="Specjalizacje (opcjonalnie)" />}
+              renderValue={(selected) => (
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
+                  {selected.map((id) => (
+                    <Chip
+                      key={id}
+                      label={availableSpecializations.find((s) => s.id === id)?.name || `(Usunięta)`}
+                    />
+                  ))}
+                </Box>
+              )}
+            >
+              {availableSpecializations.map((spec) => (
+                <MenuItem
+                  key={spec.id}
+                  value={spec.id}
+                >
+                  {spec.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          {/* ✅ POPRAWKA: Nowy interfejs do wyboru zjazdów */}
+          {isSessionBased && (
+            <>
+              <Divider sx={{ my: 2 }} />
+              <Typography
+                variant="h6"
+                gutterBottom
+              >
+                Przypisz do zjazdów
+              </Typography>
+              <Paper
+                variant="outlined"
+                sx={{ p: 1, maxHeight: 200, overflow: 'auto' }}
+              >
+                <FormGroup>
+                  {availableSessions.map((session) => (
+                    <FormControlLabel
+                      key={session.id}
+                      control={
+                        <Checkbox
+                          checked={sessionIds.includes(session.id)}
+                          onChange={() => handleSessionToggle(session.id)}
+                        />
+                      }
+                      label={`${session.date.toDate().toLocaleDateString('pl-PL')} - ${session.format}`}
+                    />
+                  ))}
+                </FormGroup>
+              </Paper>
+            </>
+          )}
+
+          <Divider sx={{ my: 1 }} />
+          <FormControl>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ mb: 1 }}
+            >
+              Forma zajęć (dla Kal. Google)
+            </Typography>
+            <ToggleButtonGroup
+              color="primary"
+              value={format}
+              exclusive
+              onChange={(_, v) => v && setFormat(v)}
+            >
+              <ToggleButton value="stacjonarny">Stacjonarne</ToggleButton>
+              <ToggleButton value="online">Online</ToggleButton>
+            </ToggleButtonGroup>
+          </FormControl>
         </Stack>
       </DialogContent>
       <DialogActions sx={{ justifyContent: 'space-between', p: '16px 24px' }}>
@@ -224,23 +263,17 @@ export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
           onClick={onDelete}
           color="error"
           variant="outlined"
-          disabled={!isEditMode || loading}
+          disabled={!initialData.id}
         >
-          Usuń Zajęcia
+          Usuń
         </Button>
         <Box>
-          <Button
-            onClick={onClose}
-            disabled={loading}
-          >
-            Anuluj
-          </Button>
+          <Button onClick={onClose}>Anuluj</Button>
           <Button
             onClick={handleSave}
             variant="contained"
-            disabled={loading}
           >
-            {loading ? <CircularProgress size={24} /> : isEditMode ? 'Zapisz zmiany' : 'Dodaj Zajęcia'}
+            Zapisz
           </Button>
         </Box>
       </DialogActions>

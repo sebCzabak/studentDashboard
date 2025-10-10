@@ -56,8 +56,9 @@ export const LoginPage = () => {
     setLoading(true);
     setError(null);
     const provider = new GoogleAuthProvider();
-    provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
-    provider.addScope('https://www.googleapis.com/auth/user.organization.read');
+    // provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
+    // provider.addScope('https://www.googleapis.com/auth/user.organization.read');
+    provider.addScope('https://www.googleapis.com/auth/calendar');
     try {
       const result = await signInWithPopup(auth, provider);
       const credential = GoogleAuthProvider.credentialFromResult(result);

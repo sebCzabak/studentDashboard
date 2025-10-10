@@ -37,7 +37,7 @@ interface GoogleApiResponse {
 type GroupedEvents = Record<string, DetailedCalendarEvent[]>;
 
 export const CalendarPage = () => {
-  const { role, profileInfo, accessToken, login } = useAuthContext();
+  const { role, profileInfo, accessToken, login, permissions } = useAuthContext();
   const [groupedEvents, setGroupedEvents] = useState<GroupedEvents>({});
   const [activeWeekIndex, setActiveWeekIndex] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -116,22 +116,18 @@ export const CalendarPage = () => {
 
   const handleReauthenticate = async () => {
     const auth = getAuth();
-    // Sprawdzamy, czy currentUser istnieje w auth z Firebase, a nie w naszym kontekście
     if (auth.currentUser) {
       setLoading(true);
       setError(null);
       try {
         const provider = new GoogleAuthProvider();
-        provider.addScope('https://www.googleapis.com/auth/calendar.readonly');
-        provider.addScope('https://www.googleapis.com/auth/user.organization.read');
+        provider.addScope('https://www.googleapis.com/auth/calendar');
 
         const result = await reauthenticateWithPopup(auth.currentUser, provider);
         const credential = GoogleAuthProvider.credentialFromResult(result);
         const newAccessToken = credential?.accessToken;
 
-        // Po udanym re-logowaniu, aktualizujemy token w naszym globalnym kontekście
-        // Przekazujemy `null` do profilu i roli, bo nie pobieramy ich ponownie
-        login(result.user, newAccessToken || null, profileInfo, role);
+        login(result.user, newAccessToken || null, profileInfo, role, permissions);
       } catch (error) {
         console.error('Błąd podczas ponownego uwierzytelniania:', error);
         setError('Nie udało się odświeżyć sesji. Spróbuj zalogować się ponownie od zera.');

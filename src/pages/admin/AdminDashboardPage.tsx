@@ -166,6 +166,14 @@ const allAdminTiles = [
     section: 'Konfiguracja',
     allowedRoles: ['admin'],
   },
+  {
+    title: 'Zarządzaj datami zjadów',
+    description: 'Dodawaj i edytuj daty zjazdów.',
+    icon: <SchoolIcon sx={{ fontSize: 40 }} />,
+    path: '/admin/semester-dates',
+    section: 'Konfiguracja',
+    allowedRoles: ['admin'],
+  },
 
   // Wspólne dla wszystkich pracowników
   {

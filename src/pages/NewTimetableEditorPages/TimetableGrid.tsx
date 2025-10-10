@@ -2,13 +2,13 @@ import React, { useMemo } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { Paper, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Typography } from '@mui/material';
 import { DraggableScheduleEntry } from './DraggableScheduleEntry';
-import type { ScheduleEntry, DayOfWeek, LecturerAvailability } from '../../features/timetable/types';
+import type { ScheduleEntry, DayOfWeek, LecturerAvailability, Specialization } from '../../features/timetable/types';
 import { TIME_SLOTS } from '../../features/timetable/constants';
 
 const STUDY_MODE_DAYS: Record<string, DayOfWeek[]> = {
   stacjonarny: ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek', 'Sobota', 'Niedziela'],
   zaoczne: ['Sobota', 'Niedziela'],
-  podyplomowe: ['Sobota', 'Niedziela'],
+  podyplomowe: ['Piątek', 'Sobota'],
   anglojęzyczne: ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek'],
 };
 
@@ -66,7 +66,8 @@ interface TimetableGridProps {
   lecturerAvailability: LecturerAvailability;
   conflictingEntries: ScheduleEntry[];
   isReadOnly: boolean;
-  studyMode: 'stacjonarny' | 'zaoczne' | 'podyplomowe' | 'anglojęzyczne';
+  studyMode: 'stacjonarne' | 'niestacjonarne' | 'podyplomowe' | 'anglojęzyczne';
+  allSpecializations: Specialization[];
 }
 
 export const TimetableGrid: React.FC<TimetableGridProps> = ({
@@ -77,8 +78,9 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
   conflictingEntries,
   isReadOnly,
   studyMode,
+  allSpecializations,
 }) => {
-  const daysToDisplay = STUDY_MODE_DAYS[studyMode] || STUDY_MODE_DAYS['stacjonarny'];
+  const daysToDisplay = STUDY_MODE_DAYS[studyMode] || STUDY_MODE_DAYS['stacjonarne'];
 
   const cellStatusMap = useMemo(() => {
     const map = new Map<string, CellStatus>();
@@ -156,6 +158,7 @@ export const TimetableGrid: React.FC<TimetableGridProps> = ({
                         entry={entry}
                         onClick={onEntryClick}
                         isReadOnly={isReadOnly}
+                        allSpecializations={allSpecializations}
                       />
                     ))}
                   </DroppableCell>

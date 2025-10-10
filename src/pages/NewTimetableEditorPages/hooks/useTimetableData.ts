@@ -12,6 +12,7 @@ import {
   deleteDoc,
 } from 'firebase/firestore';
 import { db } from '../../../config/firebase';
+import { specializationsService } from '../../../features/shared/dictionaryService';
 import type {
   CurriculumSubject,
   ScheduleEntry,
@@ -21,10 +22,10 @@ import type {
   Subject,
   Timetable,
   Curriculum,
+  UserProfile,
   Specialization,
+  SemesterDate, // ✅ Poprawny typ
 } from '../../../features/timetable/types';
-import type { UserProfile } from '../../../features/user/userService';
-import { specializationsService } from '../../../features/shared/dictionaryService';
 
 interface TimetablePageData {
   timetableData: Timetable;
@@ -33,69 +34,56 @@ interface TimetablePageData {
   rooms: Room[];
   lecturerAvailability: LecturerAvailability;
   specializations: Specialization[];
+  semesterDates: SemesterDate[]; // ✅ Poprawna nazwa
 }
 
 const fetchRelatedData = async (timetableId: string): Promise<TimetablePageData> => {
   const timetableRef = doc(db, 'timetables', timetableId);
   const timetableSnap = await getDoc(timetableRef);
   if (!timetableSnap.exists()) throw new Error('Plan zajęć o podanym ID nie istnieje!');
-
   const timetableData = { id: timetableSnap.id, ...timetableSnap.data() } as Timetable;
-
-  const specializationsSnap = await getDocs(collection(db, 'specializations'));
-  const specializationsData = await specializationsService.getAll();
-  const specializations: Specialization[] = specializationsSnap.docs.map(
-    (doc) => ({ id: doc.id, ...doc.data() } as Specialization)
-  );
 
   if (!timetableData.curriculumId || !timetableData.semesterId) {
     throw new Error("Dokument 'timetable' nie zawiera 'curriculumId' lub 'semesterId'!");
   }
 
-  const curriculumRef = doc(db, 'curriculums', timetableData.curriculumId);
-  const curriculumSnap = await getDoc(curriculumRef);
+  const [
+    curriculumSnap,
+    subjectsSnap,
+    lecturersSnap,
+    availabilitySnap,
+    groupsSnap,
+    roomsSnap,
+    specializationsData,
+    semesterDatesSnap, // ✅ Poprawna nazwa
+  ] = await Promise.all([
+    getDoc(doc(db, 'curriculums', timetableData.curriculumId)),
+    getDocs(collection(db, 'subjects')),
+    getDocs(query(collection(db, 'users'), where('role', '==', 'prowadzacy'))),
+    getDocs(collection(db, 'lecturerAvailabilities')),
+    timetableData.groupIds && timetableData.groupIds.length > 0
+      ? getDocs(query(collection(db, 'groups'), where('__name__', 'in', timetableData.groupIds)))
+      : Promise.resolve({ docs: [] }),
+    getDocs(collection(db, 'rooms')),
+    specializationsService.getAll(),
+    getDocs(query(collection(db, 'semesterDates'), where('semesterId', '==', timetableData.semesterId))), // ✅ Poprawna nazwa kolekcji
+  ]);
+
   if (!curriculumSnap.exists()) throw new Error(`Nie znaleziono siatki o ID: ${timetableData.curriculumId}`);
   const curriculumData = curriculumSnap.data() as Curriculum;
 
-  const targetSemester = curriculumData.semesters?.find(
-    (semester) => semester.semesterId?.trim() === timetableData.semesterId?.trim()
-  );
+  const targetSemester = curriculumData.semesters?.find((s) => s.semesterId === timetableData.semesterId);
   if (!targetSemester) throw new Error(`W siatce nie znaleziono semestru o ID: ${timetableData.semesterId}`);
 
-  const subjectsFromSemester = targetSemester.subjects;
-  if (!subjectsFromSemester || subjectsFromSemester.length === 0) {
-    return { timetableData, curriculumSubjects: [], groups: [], rooms: [], lecturerAvailability: {}, specializations };
-  }
+  const subjectsFromSemester = targetSemester.subjects || [];
 
-  const subjectIds = subjectsFromSemester.map((s) => s.subjectId).filter(Boolean);
-  if (subjectIds.length === 0) {
-    return { timetableData, curriculumSubjects: [], groups: [], rooms: [], lecturerAvailability: {}, specializations };
-  }
+  const subjectsMap = new Map(subjectsSnap.docs.map((doc) => [doc.id, { id: doc.id, ...doc.data() } as Subject]));
+  const lecturersMap = new Map(lecturersSnap.docs.map((doc) => [doc.id, { id: doc.id, ...doc.data() } as UserProfile]));
 
-  const subjectsQuery = query(collection(db, 'subjects'), where('__name__', 'in', subjectIds));
-
-  const subjectsSnap = await getDocs(subjectsQuery);
-  const subjectsMap = new Map<string, Subject>();
-  subjectsSnap.forEach((doc) => subjectsMap.set(doc.id, { id: doc.id, ...doc.data() } as Subject));
-
-  const lecturerIds = [
-    ...new Set(subjectsFromSemester.map((subject) => subject.lecturerId).filter(Boolean)),
-  ] as string[];
-  const lecturersMap = new Map<string, UserProfile>();
   const lecturerAvailability: LecturerAvailability = {};
-
-  if (lecturerIds.length > 0) {
-    const lecturersQuery = query(collection(db, 'users'), where('__name__', 'in', lecturerIds));
-    const lecturersSnap = await getDocs(lecturersQuery);
-    lecturersSnap.forEach((doc) => lecturersMap.set(doc.id, { id: doc.id, ...doc.data() } as UserProfile));
-
-    // ✅ POPRAWKA: Poprawnie pobieramy dane z dedykowanej kolekcji
-    const availabilityQuery = query(collection(db, 'lecturerAvailabilities'), where('__name__', 'in', lecturerIds));
-    const availabilitySnap = await getDocs(availabilityQuery);
-    availabilitySnap.forEach((doc) => {
-      lecturerAvailability[doc.id] = doc.data().slots || [];
-    });
-  }
+  availabilitySnap.forEach((doc) => {
+    lecturerAvailability[doc.id] = doc.data().slots || [];
+  });
 
   const curriculumSubjects = subjectsFromSemester
     .map((curriculumSubj: any, index: number): CurriculumSubject | null => {
@@ -114,14 +102,11 @@ const fetchRelatedData = async (timetableId: string): Promise<TimetablePageData>
     })
     .filter((subj): subj is CurriculumSubject => subj !== null);
 
-  let groups: Group[] = [];
-  if (timetableData.groupIds && timetableData.groupIds.length > 0) {
-    const groupsQuery = query(collection(db, 'groups'), where('__name__', 'in', timetableData.groupIds));
-    const groupsSnap = await getDocs(groupsQuery);
-    groups = groupsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Group));
-  }
-  const roomsSnap = await getDocs(collection(db, 'rooms'));
+  const groups: Group[] = groupsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Group));
   const rooms: Room[] = roomsSnap.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Room));
+  const semesterDates: SemesterDate[] = semesterDatesSnap.docs.map(
+    (doc) => ({ id: doc.id, ...doc.data() } as SemesterDate)
+  ); // ✅ Poprawna nazwa i typ
 
   return {
     timetableData,
@@ -130,6 +115,7 @@ const fetchRelatedData = async (timetableId: string): Promise<TimetablePageData>
     rooms,
     lecturerAvailability,
     specializations: specializationsData as Specialization[],
+    semesterDates, // ✅ Poprawna nazwa
   };
 };
 
@@ -140,15 +126,17 @@ export const useTimetableData = (timetableId: string | undefined) => {
   const [groups, setGroups] = useState<Group[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [lecturerAvailability, setLecturerAvailability] = useState<LecturerAvailability>({});
+  const [specializations, setSpecializations] = useState<Specialization[]>([]);
+  const [semesterDates, setSemesterDates] = useState<SemesterDate[]>([]); // ✅ Poprawna nazwa
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [specializations, setSpecializations] = useState<Specialization[]>([]);
 
   useEffect(() => {
     if (!timetableId) {
       setLoading(false);
       return;
     }
+
     const getInitialData = async () => {
       try {
         setError(null);
@@ -160,6 +148,7 @@ export const useTimetableData = (timetableId: string | undefined) => {
         setRooms(data.rooms);
         setLecturerAvailability(data.lecturerAvailability);
         setSpecializations(data.specializations);
+        setSemesterDates(data.semesterDates); // ✅ Poprawna nazwa
       } catch (err: any) {
         console.error('Błąd krytyczny podczas pobierania danych powiązanych:', err);
         setError(err.message);
@@ -167,6 +156,7 @@ export const useTimetableData = (timetableId: string | undefined) => {
         setLoading(false);
       }
     };
+
     getInitialData();
 
     const entriesCollectionRef = collection(db, 'scheduleEntries');
@@ -211,9 +201,10 @@ export const useTimetableData = (timetableId: string | undefined) => {
     groups,
     rooms,
     lecturerAvailability,
+    specializations,
+    semesterDates, // ✅ Poprawna nazwa
     loading,
     error,
-    specializations,
     addScheduleEntry,
     updateScheduleEntry,
     deleteScheduleEntry,

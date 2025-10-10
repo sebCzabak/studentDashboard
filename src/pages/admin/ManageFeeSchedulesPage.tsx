@@ -60,7 +60,7 @@ export const ManageFeeSchedulesPage = () => {
         >
           Wróć do pulpitu
         </Button>
-        ;
+
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
           <Typography
             variant="h4"

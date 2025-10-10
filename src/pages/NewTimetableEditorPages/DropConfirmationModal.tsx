@@ -107,7 +107,7 @@ export const DropConfirmationModal: React.FC<DropConfirmationModalProps> = ({
             variant="subtitle1"
             gutterBottom
           >
-            {derivedData.subjectName}
+            <strong>Nazwa Przedmiotu: </strong> {derivedData.subjectName}
           </Typography>
           <Typography
             variant="body2"

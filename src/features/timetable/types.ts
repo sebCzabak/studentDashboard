@@ -1,7 +1,18 @@
 import type { FieldValue, Timestamp } from 'firebase/firestore';
 
 export type DayOfWeek = 'Poniedziałek' | 'Wtorek' | 'Środa' | 'Czwartek' | 'Piątek' | 'Sobota' | 'Niedziela';
+export type StudyMode = 'stacjonarne' | 'niestacjonarne' | 'podyplomowe' | 'anglojęzyczne';
 
+export type EntryType = 'Wykład' | 'Ćwiczenia' | 'Laboratorium' | 'Seminarium' | 'Inne';
+export type RecurrenceType = 'weekly' | 'bi-weekly' | 'monthly';
+export type UserRole = 'student' | 'prowadzacy' | 'admin' | 'pracownik_dziekanatu' | 'pracownik_kwestury';
+
+export interface SemesterDate {
+  id: string;
+  semesterId: string;
+  date: Timestamp;
+  format: 'stacjonarny' | 'online';
+}
 export interface Timetable {
   id: string;
   name: string;
@@ -10,23 +21,27 @@ export interface Timetable {
   semesterId: string;
   groupIds: string[];
   academicYear?: string;
-  studyMode?: 'stacjonarny' | 'zaoczne' | 'podyplomowe' | 'anglojęzyczne';
+  studyMode?: StudyMode;
   curriculumName?: string;
   semesterName?: string;
   createdAt?: Timestamp | FieldValue;
   lastUpdatedAt?: Timestamp | FieldValue;
+  recurrence?: RecurrenceType;
 }
 
 export interface Group {
   id: string;
   name: string;
-  semesterId: string; // Grupa powinna być przypisana do semestru
+  semesterId: string;
   specializations?: { id: string; name: string }[];
+  groupEmail?: string;
 }
 
 export interface Room {
   id: string;
   name: string;
+  capacity?: number;
+  equipment?: string[];
 }
 
 export interface Subject {
@@ -51,7 +66,7 @@ export interface UserProfile {
   id: string;
   displayName: string;
   email: string;
-  role: 'student' | 'prowadzacy' | 'admin' | 'pracownik_dziekanatu' | 'pracownik_kwestury';
+  role: UserRole;
   availability?: AvailabilitySlot[];
 }
 
@@ -61,12 +76,11 @@ export interface CurriculumSubject {
   subjectName: string;
   lecturerId: string;
   lecturerName: string;
-  type: 'Wykład' | 'Ćwiczenia' | 'Laboratorium' | 'Seminarium';
+  type: EntryType;
   hours: number;
 }
 
 export interface ScheduleEntry {
-  specializationIds: string[];
   id: string;
   day: DayOfWeek;
   startTime: string;
@@ -75,16 +89,20 @@ export interface ScheduleEntry {
   subjectName: string;
   lecturerId: string;
   lecturerName: string;
-  type: 'Wykład' | 'Ćwiczenia' | 'Laboratorium' | 'Seminarium';
+  type: EntryType;
   roomId: string;
   roomName: string;
   curriculumSubjectId: string;
   groupIds: string[];
   groupNames: string[];
   timetableId: string;
+  specializationIds?: string[];
   specificDates?: Timestamp[];
   createdAt?: Timestamp | FieldValue;
   lastUpdatedAt?: Timestamp | FieldValue;
+  format?: 'stacjonarny' | 'online';
+  date?: Timestamp;
+  sessionIds?: string[];
 }
 
 export interface LecturerAvailability {
@@ -114,21 +132,18 @@ export interface Semester {
   name: string;
   startDate: Timestamp;
   endDate: Timestamp;
-  type: 'stacjonarne' | 'niestacjonarne' | 'podyplomowe' | 'anglojęzyczne';
-  semesterNumber?: number; // Dodane dla spójności
+  type: StudyMode;
+  semesterNumber?: number;
 }
 
-// Typy, które mogły być brakujące
 export interface Specialization {
   id: string;
   name: string;
   groupId: string;
+  abbreviation?: string;
+  emails?: string[];
 }
 
-export interface DegreeLevel {
-  id: string;
-  name: string;
-}
 export interface WorkloadRow {
   lecturerId: string;
   lecturerName: string;
@@ -136,4 +151,15 @@ export interface WorkloadRow {
   studyMode: string;
   hours: { [key: string]: number };
   totalHours: number;
+}
+// export interface SemesterDate {
+//   id: string;
+//   semesterId: string;
+//   date: Timestamp;
+//   format: 'stacjonarny' | 'online';
+// }
+
+export interface DegreeLevel {
+  id: string;
+  name: string; // np. "I stopień", "II stopień", "Podyplomowe"
 }

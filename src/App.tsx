@@ -41,6 +41,8 @@ import { ManageUsersPage } from './pages/admin/ManageUsersPage';
 import { LecturerWorkloadReportPage } from './pages/admin/LecturersWorkloadReportPage';
 import { PrintableSchedulePage } from './pages/admin/PrintableSchedulePage';
 import { RoomOccupancyPage } from './pages/admin/RoomOccupancyPage';
+import { ManageSessionsPage } from './pages/admin/ManageSessionsPage';
+import { ManageSemesterDatesPage } from './pages/admin/ManageSemesterDatePage';
 
 function App() {
   return (
@@ -191,6 +193,14 @@ function App() {
             <Route
               path="reports/room-occupancy"
               element={<RoomOccupancyPage />}
+            />
+            <Route
+              path="sessions"
+              element={<ManageSessionsPage />}
+            />
+            <Route
+              path="semester-dates"
+              element={<ManageSemesterDatesPage />}
             />
           </Route>
           {/* ================================================================== */}

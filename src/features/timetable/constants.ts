@@ -6,11 +6,11 @@ export const DAYS: DayOfWeek[] = ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek
 // To jest teraz nasze jedyne, centralne źródło prawdy o blokach godzinowych
 export const TIME_SLOTS = [
   { label: '08:00-09:30', startTime: '08:00', endTime: '09:30' },
-  { label: '09:45-11:15', startTime: '09:45', endTime: '11:15' },
-  { label: '11:30-13:00', startTime: '11:30', endTime: '13:00' },
-  { label: '13:15-14:45', startTime: '13:15', endTime: '14:45' },
-  { label: '15:00-16:30', startTime: '15:00', endTime: '16:30' },
-  { label: '16:45-18:15', startTime: '16:45', endTime: '18:15' },
-  { label: '18:30-20:00', startTime: '18:30', endTime: '20:00' },
-  { label: '20:10-21:40', startTime: '20:10', endTime: '21:40' },
+  { label: '09:35-11:05', startTime: '09:35', endTime: '11:05' },
+  { label: '11:10-12:40', startTime: '11:10', endTime: '12:40' },
+  { label: '13:10-14:40', startTime: '13:10', endTime: '14:40' },
+  { label: '14:45-16:15', startTime: '14:45', endTime: '16:15' },
+  { label: '16:20-17:50', startTime: '16:20', endTime: '17:50' },
+  { label: '17:55-19:25', startTime: '17:55', endTime: '19:25' },
+  { label: '19:30-21:00', startTime: '19:30', endTime: '21:00' },
 ];

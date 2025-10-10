@@ -1,7 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import {
   Box,
-  Paper,
   Typography,
   Button,
   CircularProgress,
@@ -11,103 +10,120 @@ import {
   List,
   ListItem,
   ListItemText,
-  TextField,
   IconButton,
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
-import { db } from '../../config/firebase';
 import {
-  addGroup,
+  getGroups,
   addSpecialization,
-  deleteSpecialization,
   updateSpecialization,
+  deleteSpecialization,
+  updateGroup,
+  deleteGroup,
+  addGroup,
+  getAllSpecializations,
 } from '../../features/groups/groupsService';
 import toast from 'react-hot-toast';
 import { Link as RouterLink } from 'react-router-dom';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import { GroupFormModal } from '../../features/timetable/components/GroupFormModal';
+import { SpecializationFormModal } from '../../features/groups/components/SpecializationFormModal';
 import type { Group, Specialization } from '../../features/timetable/types';
 
 export const ManageGroupsPage = () => {
   const [groups, setGroups] = useState<Group[]>([]);
   const [specializations, setSpecializations] = useState<Specialization[]>([]);
   const [loading, setLoading] = useState(true);
-  const [newGroupName, setNewGroupName] = useState('');
-  const [newSpecName, setNewSpecName] = useState<Record<string, string>>({});
+
+  const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<Group | null>(null);
+
+  const [isSpecModalOpen, setIsSpecModalOpen] = useState(false);
+  const [editingSpec, setEditingSpec] = useState<Partial<Specialization> | null>(null);
+  const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
+
+  // ✅ POPRAWKA: Tworzymy jedną, centralną funkcję do pobierania danych
+  const fetchData = async () => {
+    try {
+      setLoading(true);
+      const [groupsData, specsData] = await Promise.all([getGroups(), getAllSpecializations()]);
+      setGroups(groupsData as Group[]);
+      setSpecializations(specsData as Specialization[]);
+    } catch (error) {
+      toast.error('Błąd podczas pobierania danych.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    // Nasłuchujemy na zmiany w grupach w czasie rzeczywistym
-    const groupsQuery = query(collection(db, 'groups'), orderBy('name'));
-    const unsubscribeGroups = onSnapshot(
-      groupsQuery,
-      (snapshot) => {
-        const groupsData = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Group));
-        setGroups(groupsData);
-        if (loading) setLoading(false); // Wyłącz ładowanie po pierwszym pobraniu grup
-      },
-      (_error) => {
-        toast.error('Błąd pobierania grup.');
-        setLoading(false);
-      }
-    );
+    fetchData();
+  }, []);
 
-    // Nasłuchujemy na zmiany w specjalizacjach w czasie rzeczywistym
-    const specsQuery = collection(db, 'specializations');
-    const unsubscribeSpecs = onSnapshot(specsQuery, (snapshot) => {
-      const specsData = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Specialization));
-      setSpecializations(specsData);
-    });
-
-    return () => {
-      unsubscribeGroups();
-      unsubscribeSpecs();
-    };
-  }, []); // Pusta tablica zależności, aby uruchomić tylko raz
-
-  // Grupujemy specjalizacje po ID grupy dla łatwiejszego wyświetlania
   const specsByGroup = useMemo(() => {
     return specializations.reduce((acc, spec) => {
       const groupId = spec.groupId;
-      if (!acc[groupId]) {
-        acc[groupId] = [];
-      }
+      if (!acc[groupId]) acc[groupId] = [];
       acc[groupId].push(spec);
       return acc;
     }, {} as Record<string, Specialization[]>);
   }, [specializations]);
 
-  const handleAddGroup = async () => {
-    if (!newGroupName.trim()) return toast.error('Nazwa grupy jest wymagana.');
-    await toast.promise(addGroup({ name: newGroupName }), {
-      loading: 'Dodawanie grupy...',
-      success: 'Grupa dodana!',
-      error: (err) => err.message || 'Błąd zapisu.',
-    });
-    setNewGroupName('');
+  const handleOpenGroupModal = (group: Group | null = null) => {
+    setEditingGroup(group);
+    setIsGroupModalOpen(true);
   };
 
-  const handleAddSpecialization = async (groupId: string) => {
-    const name = newSpecName[groupId];
-    if (!name || !name.trim()) return toast.error('Nazwa specjalizacji jest wymagana.');
-    await toast.promise(addSpecialization({ name, groupId }), {
-      loading: 'Dodawanie specjalizacji...',
-      success: 'Specjalizacja dodana!',
+  const handleSaveGroup = async (data: Partial<Omit<Group, 'id'>>, id?: string) => {
+    const promise = id ? updateGroup(id, data) : addGroup(data);
+    await toast.promise(promise, {
+      loading: 'Zapisywanie grupy...',
+      success: 'Grupa zapisana!',
       error: (err) => err.message || 'Błąd zapisu.',
     });
-    setNewSpecName((prev) => ({ ...prev, [groupId]: '' }));
+    fetchData(); // ✅ Odświeżamy dane po operacji
   };
-  const handleEditSpecialization = async (spec: Specialization) => {
-    const newName = window.prompt('Wprowadź nową nazwę dla specjalizacji:', spec.name);
-    if (newName && newName.trim() !== '') {
-      await toast.promise(updateSpecialization(spec.id, newName.trim()), {
-        loading: 'Aktualizowanie nazwy...',
-        success: 'Nazwa zaktualizowana!',
-        error: 'Błąd podczas aktualizacji.',
+
+  const handleDeleteGroup = async (group: Group) => {
+    if (window.confirm(`Czy na pewno chcesz usunąć grupę "${group.name}"?`)) {
+      await toast.promise(deleteGroup(group.id), {
+        loading: 'Usuwanie grupy...',
+        success: 'Grupa usunięta.',
+        error: 'Błąd podczas usuwania.',
       });
+      fetchData(); // ✅ Odświeżamy dane po operacji
     }
+  };
+
+  const handleOpenSpecModal = (groupId: string, spec: Specialization | null = null) => {
+    setCurrentGroupId(groupId);
+    setEditingSpec(spec);
+    setIsSpecModalOpen(true);
+  };
+
+  const handleSaveSpecialization = async (
+    data: Partial<Omit<Specialization, 'id' | 'groupId'>>,
+    id?: string
+  ): Promise<void> => {
+    if (!id && !currentGroupId) {
+      toast.error('Błąd: Brak wybranej grupy.');
+      return;
+    }
+
+    const dataToSave = id ? data : { ...data, groupId: currentGroupId! };
+    const promise = id
+      ? updateSpecialization(id, dataToSave)
+      : addSpecialization(dataToSave as Omit<Specialization, 'id'>);
+
+    await toast.promise(promise, {
+      loading: 'Zapisywanie specjalizacji...',
+      success: `Specjalizacja ${id ? 'zaktualizowana' : 'dodana'}!`,
+      error: 'Błąd zapisu.',
+    });
+    fetchData();
   };
 
   const handleDeleteSpecialization = async (spec: Specialization) => {
@@ -117,6 +133,7 @@ export const ManageGroupsPage = () => {
         success: 'Specjalizacja usunięta.',
         error: 'Błąd podczas usuwania.',
       });
+      fetchData();
     }
   };
 
@@ -132,45 +149,80 @@ export const ManageGroupsPage = () => {
       >
         Wróć do pulpitu
       </Button>
-      <Typography
-        variant="h4"
-        gutterBottom
-      >
-        Zarządzaj Grupami i Specjalizacjami
-      </Typography>
-
-      <Paper sx={{ p: 2, display: 'flex', gap: 2, mb: 4, mt: 2 }}>
-        <TextField
-          label="Nazwa nowej grupy (np. Zarządzanie, I st., III sem.)"
-          value={newGroupName}
-          onChange={(e) => setNewGroupName(e.target.value)}
-          fullWidth
-          size="small"
-        />
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+        <Typography
+          variant="h4"
+          gutterBottom
+        >
+          Zarządzaj Grupami i Specjalizacjami
+        </Typography>
         <Button
           variant="contained"
-          onClick={handleAddGroup}
           startIcon={<AddIcon />}
+          onClick={() => handleOpenGroupModal()}
         >
-          Dodaj
+          Dodaj Nową Grupę
         </Button>
-      </Paper>
+      </Box>
 
       {groups.map((group) => (
         <Accordion
           key={group.id}
           TransitionProps={{ unmountOnExit: true }}
         >
-          <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Typography sx={{ fontWeight: 500 }}>{group.name}</Typography>
+          <AccordionSummary
+            expandIcon={<ExpandMoreIcon />}
+            sx={{ '& .MuiAccordionSummary-content': { alignItems: 'center', justifyContent: 'space-between' } }}
+          >
+            <Box>
+              <Typography sx={{ fontWeight: 500 }}>{group.name}</Typography>
+              {group.groupEmail && (
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                >
+                  {group.groupEmail}
+                </Typography>
+              )}
+            </Box>
+            <Box>
+              {/* ✅ POPRAWKA: Używamy `onMouseDown` do zatrzymania propagacji zdarzenia */}
+              <IconButton
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleOpenGroupModal(group);
+                }}
+              >
+                <EditIcon />
+              </IconButton>
+              <IconButton
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleDeleteGroup(group);
+                }}
+              >
+                <DeleteIcon />
+              </IconButton>
+            </Box>
           </AccordionSummary>
           <AccordionDetails>
-            <Typography
-              variant="h6"
-              gutterBottom
-            >
-              Specjalizacje:
-            </Typography>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Typography
+                variant="h6"
+                gutterBottom
+              >
+                Specjalizacje:
+              </Typography>
+              <Button
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={() => handleOpenSpecModal(group.id)}
+              >
+                Dodaj specjalizację
+              </Button>
+            </Box>
             <List dense>
               {(specsByGroup[group.id] || []).map((spec) => (
                 <ListItem
@@ -179,14 +231,12 @@ export const ManageGroupsPage = () => {
                     <>
                       <IconButton
                         edge="end"
-                        aria-label="edit"
-                        onClick={() => handleEditSpecialization(spec)}
+                        onClick={() => handleOpenSpecModal(group.id, spec)}
                       >
                         <EditIcon />
                       </IconButton>
                       <IconButton
                         edge="end"
-                        aria-label="delete"
                         onClick={() => handleDeleteSpecialization(spec)}
                       >
                         <DeleteIcon />
@@ -194,7 +244,10 @@ export const ManageGroupsPage = () => {
                     </>
                   }
                 >
-                  <ListItemText primary={spec.name} />
+                  <ListItemText
+                    primary={spec.name}
+                    secondary={spec.emails ? `E-maile: ${spec.emails.join(', ')}` : 'Brak e-maili'}
+                  />
                 </ListItem>
               ))}
               {(!specsByGroup[group.id] || specsByGroup[group.id].length === 0) && (
@@ -203,25 +256,27 @@ export const ManageGroupsPage = () => {
                 </ListItem>
               )}
             </List>
-            <Box sx={{ display: 'flex', gap: 2, mt: 2, borderTop: '1px solid #eee', pt: 2 }}>
-              <TextField
-                label="Nazwa nowej specjalizacji"
-                value={newSpecName[group.id] || ''}
-                onChange={(e) => setNewSpecName((prev) => ({ ...prev, [group.id]: e.target.value }))}
-                fullWidth
-                size="small"
-              />
-              <Button
-                variant="outlined"
-                onClick={() => handleAddSpecialization(group.id)}
-                size="small"
-              >
-                Dodaj specjalizację
-              </Button>
-            </Box>
           </AccordionDetails>
         </Accordion>
       ))}
+
+      {isGroupModalOpen && (
+        <GroupFormModal
+          open={isGroupModalOpen}
+          onClose={() => setIsGroupModalOpen(false)}
+          onSave={handleSaveGroup}
+          initialData={editingGroup}
+        />
+      )}
+
+      {isSpecModalOpen && (
+        <SpecializationFormModal
+          open={isSpecModalOpen}
+          onClose={() => setIsSpecModalOpen(false)}
+          onSave={handleSaveSpecialization}
+          initialData={editingSpec}
+        />
+      )}
     </Box>
   );
 };

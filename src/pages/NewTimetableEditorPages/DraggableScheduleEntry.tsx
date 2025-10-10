@@ -1,19 +1,23 @@
-// src/pages/TimetableEditorPage/DraggableScheduleEntry.tsx
-
-import React from 'react';
+import React, { useMemo } from 'react';
 import { useDraggable } from '@dnd-kit/core';
-import { Paper, Typography, Box, IconButton, Tooltip } from '@mui/material';
+import { Paper, Typography, Box, IconButton, Chip } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
-import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
-import { type ScheduleEntry } from '../../features/timetable/types';
+import type { ScheduleEntry, Specialization } from '../../features/timetable/types';
 
+// ✅ POPRAWKA: Dodajemy `allSpecializations` do definicji propsów
 interface DraggableScheduleEntryProps {
   entry: ScheduleEntry;
   onClick: (entry: ScheduleEntry) => void;
   isReadOnly: boolean;
+  allSpecializations: Specialization[];
 }
 
-export const DraggableScheduleEntry: React.FC<DraggableScheduleEntryProps> = ({ entry, onClick, isReadOnly }) => {
+export const DraggableScheduleEntry: React.FC<DraggableScheduleEntryProps> = ({
+  entry,
+  onClick,
+  isReadOnly,
+  allSpecializations, // ✅ Odbieramy nowy prop
+}) => {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id: entry.id,
     data: { type: 'existing-entry', entry: entry },
@@ -33,8 +37,11 @@ export const DraggableScheduleEntry: React.FC<DraggableScheduleEntryProps> = ({ 
     event.stopPropagation();
   };
 
-  // ✅ Tworzymy listę dat do wyświetlenia w tooltipie
-  const datesTooltip = entry.specificDates?.map((ts) => ts.toDate().toLocaleDateString('pl-PL')).join('\n');
+  const assignedSpecializations = useMemo(() => {
+    if (!entry.specializationIds || !allSpecializations) return [];
+    const specMap = new Map(allSpecializations.map((s) => [s.id, s]));
+    return entry.specializationIds.map((id) => specMap.get(id)).filter(Boolean) as Specialization[];
+  }, [entry.specializationIds, allSpecializations]);
 
   return (
     <Paper
@@ -61,14 +68,8 @@ export const DraggableScheduleEntry: React.FC<DraggableScheduleEntryProps> = ({ 
         >
           {entry.subjectName}
         </Typography>
+
         <Typography variant="caption">{entry.lecturerName}</Typography>
-        <br />
-        <Typography
-          variant="caption"
-          color="inherit"
-        >
-          {(entry.groupNames || []).join(', ')}
-        </Typography>
         <br />
         <Typography
           variant="caption"
@@ -78,13 +79,17 @@ export const DraggableScheduleEntry: React.FC<DraggableScheduleEntryProps> = ({ 
         </Typography>
       </Box>
 
-      {/* ✅ Wyświetlamy ikonkę kalendarza, jeśli są zdefiniowane konkretne daty */}
-      {entry.specificDates && entry.specificDates.length > 0 && (
-        <Tooltip title={<div style={{ whiteSpace: 'pre-line' }}>{datesTooltip}</div>}>
-          <CalendarTodayIcon
-            sx={{ position: 'absolute', bottom: 4, right: 4, fontSize: '1rem', color: 'rgba(255, 255, 255, 0.7)' }}
-          />
-        </Tooltip>
+      {assignedSpecializations.length > 0 && (
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, mt: 0.5 }}>
+          {assignedSpecializations.map((spec) => (
+            <Chip
+              key={spec.id}
+              label={spec.abbreviation || '?'}
+              color="info"
+              size="small"
+            />
+          ))}
+        </Box>
       )}
 
       {!isReadOnly && (

@@ -27,8 +27,7 @@ import {
 } from '@mui/material';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { LocalizationProvider, DatePicker } from '@mui/x-date-pickers';
-import { collection, onSnapshot, query, orderBy } from 'firebase/firestore';
-import { db } from '../../config/firebase';
+
 import { getSemesters, addSemester, updateSemester, deleteSemester } from '../../features/shared/dictionaryService';
 import toast from 'react-hot-toast';
 import { pl } from 'date-fns/locale';
@@ -36,23 +35,21 @@ import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { Link as RouterLink } from 'react-router-dom';
-import type { Semester } from '../../features/timetable/types';
+import type { Semester, StudyMode } from '../../features/timetable/types';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 
 // Wewnętrzny komponent formularza
 interface SemesterFormProps {
   open: boolean;
   onClose: () => void;
-  onSave: (
-    data: Omit<Semester, 'id' | 'startDate' | 'endDate'> & { startDate: Date; endDate: Date },
-    id?: string
-  ) => Promise<void>;
+  onSave: (data: any, id?: string) => Promise<void>;
   initialData: Partial<Semester> | null;
 }
 
 const SemesterForm: React.FC<SemesterFormProps> = ({ open, onClose, onSave, initialData }) => {
   const [name, setName] = useState('');
-  const [type, setType] = useState<'stacjonarne' | 'niestacjonarne' | 'podyplomowe' | 'anglojęzyczne'>('stacjonarne');
+  // ✅ POPRAWKA: Poprawnie typujemy stan
+  const [type, setType] = useState<StudyMode>('stacjonarne');
   const [startDate, setStartDate] = useState<Date | null>(null);
   const [endDate, setEndDate] = useState<Date | null>(null);
   const [loading, setLoading] = useState(false);
@@ -149,11 +146,8 @@ export const ManageSemestersPage = () => {
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSemester, setEditingSemester] = useState<Semester | null>(null);
-  const [activeTab, setActiveTab] = useState<'stacjonarne' | 'niestacjonarne' | 'podyplomowe' | 'anglojęzyczne'>(
-    'stacjonarne'
-  );
+  const [activeTab, setActiveTab] = useState<StudyMode>('stacjonarne');
 
-  // ✅ POPRAWKA: onSnapshot jest lepszy, ale wracamy do `fetchData`, zgodnie z Twoim kodem
   const fetchData = () => {
     setLoading(true);
     getSemesters()

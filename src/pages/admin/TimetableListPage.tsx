@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { collection, onSnapshot } from 'firebase/firestore';
+import { collection, onSnapshot, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../../config/firebase';
 import { useNavigate, Link as RouterLink } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -34,8 +34,10 @@ import GridViewIcon from '@mui/icons-material/GridView';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import PictureAsPdfIcon from '@mui/icons-material/PictureAsPdf';
+import GoogleIcon from '@mui/icons-material/Google';
 import TableChartIcon from '@mui/icons-material/TableChart';
 import { TimetableFormModal } from '../../features/timetable/components/TimetableFormModal';
+import { GroupSelectionModal } from '../../features/timetable/components/GroupSelectionModal';
 import {
   createTimetable,
   updateTimetable,
@@ -43,46 +45,85 @@ import {
   updateTimetableStatus,
   copyTimetable,
 } from '../../features/timetable/scheduleService';
-import { exportTimetableToPdf } from '../../features/timetable/exportService';
-import { groupsService, getSemesters } from '../../features/shared/dictionaryService';
+import { exportToGoogleCalendar } from '../../features/calendar/services/googleCalendarService';
+import { exportTimetableToPdf, exportTimetableToExcel } from '../../features/timetable/exportService';
+import {
+  groupsService,
+  getSemesters,
+  getAllLecturers,
+  specializationsService,
+  semesterDatesService,
+} from '../../features/shared/dictionaryService';
 import { getCurriculums } from '../../features/curriculums/curriculumsService';
-import type { Timetable, Group, Semester, Curriculum } from '../../features/timetable/types';
-import { exportTimetableToExcel } from '../../features/timetable/exportService';
+import { useAuthContext } from '../../context/AuthContext';
+import type {
+  Timetable,
+  Group,
+  Semester,
+  Curriculum,
+  ScheduleEntry,
+  UserProfile,
+  Specialization,
+  SemesterDate,
+} from '../../features/timetable/types';
 
 export const TimetablesListPage = () => {
+  const { accessToken } = useAuthContext();
   const [timetables, setTimetables] = useState<Timetable[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
+  const [lecturers, setLecturers] = useState<UserProfile[]>([]);
   const [semesters, setSemesters] = useState<Semester[]>([]);
   const [curriculums, setCurriculums] = useState<Curriculum[]>([]);
+  const [specializations, setSpecializations] = useState<Specialization[]>([]);
+  const [semesterDates, setSemesterDates] = useState<SemesterDate[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingTimetable, setEditingTimetable] = useState<Timetable | null>(null);
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState<'stacjonarny' | 'zaoczne' | 'podyplomowe' | 'anglojęzyczne'>(
-    'stacjonarny'
-  );
+  const [activeTab, setActiveTab] = useState<'dzienne' | 'zaoczne' | 'podyplomowe' | 'anglojęzyczne'>('dzienne');
   const [selectedYear, setSelectedYear] = useState<string>('all');
   const [selectedCurriculumId, setSelectedCurriculumId] = useState<string>('all');
 
+  const [isGoogleExportModalOpen, setGoogleExportModalOpen] = useState(false);
+  const [timetableToExport, setTimetableToExport] = useState<Timetable | null>(null);
+
   useEffect(() => {
-    const timetablesQuery = collection(db, 'timetables');
-    const unsubscribe = onSnapshot(timetablesQuery, (snapshot) => {
-      const timetablesData = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() } as Timetable));
-      setTimetables(timetablesData);
-      if (loading) {
-        Promise.all([groupsService.getAll(), getSemesters(), getCurriculums()])
-          .then(([groupsData, semestersData, curriculumsData]) => {
-            setGroups(groupsData as Group[]);
-            setSemesters(semestersData as Semester[]);
-            setCurriculums(curriculumsData as Curriculum[]);
-          })
-          .catch((_err) => toast.error('Błąd wczytywania danych słownikowych.'))
-          .finally(() => setLoading(false));
-      }
+    const unsubscribers: (() => void)[] = [];
+    setLoading(true);
+
+    const collectionsToWatch = [
+      { name: 'timetables', setter: setTimetables },
+      { name: 'groups', setter: setGroups },
+      { name: 'semesters', setter: setSemesters },
+      { name: 'curriculums', setter: setCurriculums },
+      { name: 'specializations', setter: setSpecializations },
+      { name: 'semesterDates', setter: setSemesterDates },
+    ];
+
+    collectionsToWatch.forEach((c) => {
+      const q = query(collection(db, c.name));
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          const data = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+          c.setter(data as any);
+        },
+        (error) => {
+          toast.error(`Błąd synchronizacji kolekcji: ${c.name}`);
+          console.error(error);
+        }
+      );
+      unsubscribers.push(unsubscribe);
     });
-    return () => unsubscribe();
-  }, [loading]);
+
+    getAllLecturers()
+      .then((data) => setLecturers(data as UserProfile[]))
+      .catch(() => toast.error('Błąd pobierania listy prowadzących.'))
+      .finally(() => setLoading(false)); // Ustawiamy loading na false po ostatnim zapytaniu
+
+    return () => unsubscribers.forEach((unsub) => unsub());
+  }, []);
 
   const academicYears = useMemo(
     () => ['all', ...Array.from(new Set(timetables.map((t) => t.academicYear).filter(Boolean)))],
@@ -98,11 +139,10 @@ export const TimetablesListPage = () => {
     };
     return [allOption, ...curriculums];
   }, [curriculums]);
-
   const filteredTimetables = useMemo(() => {
     return timetables.filter(
       (t) =>
-        (t.studyMode || 'stacjonarny') === activeTab &&
+        (t.studyMode || 'dzienne') === activeTab &&
         (selectedYear === 'all' || t.academicYear === selectedYear) &&
         (selectedCurriculumId === 'all' || t.curriculumId === selectedCurriculumId)
     );
@@ -153,13 +193,44 @@ export const TimetablesListPage = () => {
     }
   };
 
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', mt: 4 }}>
-        <CircularProgress />
-      </Box>
+  const handleOpenGoogleExportModal = (timetable: Timetable) => {
+    setTimetableToExport(timetable);
+    setGoogleExportModalOpen(true);
+  };
+
+  const handleConfirmGoogleExport = async (selectedGroup: Group, calendarId: string) => {
+    setGoogleExportModalOpen(false);
+    if (!accessToken || !timetableToExport) {
+      toast.error('Brak danych autoryzacyjnych lub planu do eksportu.');
+      return;
+    }
+
+    const entriesRef = collection(db, 'scheduleEntries');
+    const q = query(entriesRef, where('timetableId', '==', timetableToExport.id));
+    const entriesSnapshot = await getDocs(q);
+    const entries = entriesSnapshot.docs.map((doc) => doc.data() as ScheduleEntry);
+
+    if (entries.length === 0) return toast.error('Ten plan jest pusty.');
+
+    const entriesForGroup = entries.filter((e) => e.groupIds?.includes(selectedGroup.id));
+    if (entriesForGroup.length === 0) {
+      return toast.error('Brak zajęć dla wybranej grupy w tym planie.');
+    }
+
+    await exportToGoogleCalendar(
+      timetableToExport,
+      entriesForGroup,
+      accessToken,
+      calendarId,
+      lecturers,
+      groups,
+      specializations,
+      semesterDates
     );
-  }
+    setTimetableToExport(null);
+  };
+
+  if (loading) return <CircularProgress />;
 
   return (
     <Box sx={{ p: 3, width: '100%' }}>
@@ -190,17 +261,17 @@ export const TimetablesListPage = () => {
           <Grid size={{ xs: 12, lg: 6 }}>
             <Tabs
               value={activeTab}
-              onChange={(_, newValue) => setActiveTab(newValue)}
+              onChange={(_, newValue) => setActiveTab(newValue as any)}
               variant="scrollable"
               scrollButtons="auto"
               allowScrollButtonsMobile
             >
               <Tab
-                label="Stacjonarne"
+                label="Dzienne"
                 value="stacjonarny"
               />
               <Tab
-                label="Zaoczne"
+                label="Zoczne"
                 value="zaoczne"
               />
               <Tab
@@ -321,9 +392,14 @@ export const TimetablesListPage = () => {
                       <PictureAsPdfIcon />
                     </IconButton>
                   </Tooltip>
-                  <Tooltip title="Eksportuj do Excel/Google Sheets">
+                  <Tooltip title="Eksportuj do Excel">
                     <IconButton onClick={() => exportTimetableToExcel(tt)}>
                       <TableChartIcon />
+                    </IconButton>
+                  </Tooltip>
+                  <Tooltip title="Eksportuj do Kalendarza Google">
+                    <IconButton onClick={() => handleOpenGoogleExportModal(tt)}>
+                      <GoogleIcon />
                     </IconButton>
                   </Tooltip>
                   <Tooltip title="Kopiuj plan">
@@ -355,6 +431,16 @@ export const TimetablesListPage = () => {
           semesters={semesters}
           groups={groups}
           curriculums={curriculums}
+        />
+      )}
+      {timetableToExport && (
+        <GroupSelectionModal
+          open={isGoogleExportModalOpen}
+          onClose={() => setGoogleExportModalOpen(false)}
+          onConfirm={handleConfirmGoogleExport}
+          groups={
+            (timetableToExport.groupIds || []).map((id) => groups.find((g) => g.id === id)).filter(Boolean) as Group[]
+          }
         />
       )}
     </Box>

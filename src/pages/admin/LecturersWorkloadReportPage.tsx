@@ -19,6 +19,7 @@ import {
   Autocomplete,
   TextField,
   Chip,
+  Tooltip,
 } from '@mui/material';
 import FileDownloadIcon from '@mui/icons-material/FileDownload';
 import VisibilityIcon from '@mui/icons-material/Visibility';
@@ -28,12 +29,32 @@ import { Link as RouterLink } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { collection, getDocs } from 'firebase/firestore';
 import { db } from '../../config/firebase';
-import type { ScheduleEntry, Timetable, Semester, UserProfile, WorkloadRow } from '../../features/timetable/types';
 import { getSemesters, getAllLecturers } from '../../features/shared/dictionaryService';
+import { getCurriculums, getAllSubjects } from '../../features/curriculums/curriculumsService';
 import { exportWorkloadReportToPdf } from '../../features/timetable/exportService';
+import type {
+  ScheduleEntry,
+  Timetable,
+  Semester,
+  UserProfile,
+  Curriculum,
+  Subject,
+} from '../../features/timetable/types';
 import * as XLSX from 'xlsx';
+import React from 'react';
 
-// Mapowanie dni tygodnia na potrzeby sortowania
+interface EnhancedWorkloadRow {
+  lecturerId: string;
+  lecturerName: string;
+  subjectId: string;
+  subjectName: string;
+  studyMode: string;
+  plannedHours: { [key: string]: number };
+  scheduledHours: { [key: string]: number };
+  totalPlanned: number;
+  totalScheduled: number;
+}
+
 const dayOrder: { [key: string]: number } = {
   Poniedziałek: 1,
   Wtorek: 2,
@@ -44,12 +65,31 @@ const dayOrder: { [key: string]: number } = {
   Niedziela: 7,
 };
 
+const imageToBase64 = (url: string): Promise<string> =>
+  fetch(url)
+    .then((response) => {
+      if (!response.ok) throw new Error(`Nie można załadować obrazu: ${url}`);
+      return response.blob();
+    })
+    .then(
+      (blob) =>
+        new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
+        })
+    );
+
 export const LecturerWorkloadReportPage = () => {
   const [loading, setLoading] = useState(true);
   const [allEntries, setAllEntries] = useState<ScheduleEntry[]>([]);
   const [allTimetables, setAllTimetables] = useState<Timetable[]>([]);
   const [allLecturers, setAllLecturers] = useState<UserProfile[]>([]);
+  const [allSubjects, setAllSubjects] = useState<Subject[]>([]);
   const [semesters, setSemesters] = useState<Semester[]>([]);
+  const [curriculums, setCurriculums] = useState<Curriculum[]>([]);
+
   const [selectedSemesterId, setSelectedSemesterId] = useState<string>('all');
   const [selectedAcademicYear, setSelectedAcademicYear] = useState<string>('all');
   const [selectedLecturerId, setSelectedLecturerId] = useState<string>('all');
@@ -57,18 +97,23 @@ export const LecturerWorkloadReportPage = () => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [entriesSnap, timetablesSnap, lecturersData, semestersData] = await Promise.all([
-          getDocs(collection(db, 'scheduleEntries')),
-          getDocs(collection(db, 'timetables')),
-          getAllLecturers(),
-          getSemesters(),
-        ]);
+        const [entriesSnap, timetablesSnap, lecturersData, semestersData, curriculumsData, subjectsSnap] =
+          await Promise.all([
+            getDocs(collection(db, 'scheduleEntries')),
+            getDocs(collection(db, 'timetables')),
+            getAllLecturers(),
+            getSemesters(),
+            getCurriculums(),
+            getDocs(collection(db, 'subjects')),
+          ]);
 
         const mapDoc = (doc: any) => ({ id: doc.id, ...doc.data() });
         setAllEntries(entriesSnap.docs.map(mapDoc) as ScheduleEntry[]);
         setAllTimetables(timetablesSnap.docs.map(mapDoc) as Timetable[]);
         setAllLecturers(lecturersData as UserProfile[]);
         setSemesters(semestersData as Semester[]);
+        setCurriculums(curriculumsData as Curriculum[]);
+        setAllSubjects(subjectsSnap.docs.map(mapDoc) as Subject[]);
       } catch (err) {
         toast.error('Błąd pobierania danych do raportu.');
         console.error(err);
@@ -85,42 +130,73 @@ export const LecturerWorkloadReportPage = () => {
   }, [allTimetables]);
 
   const reportData = useMemo(() => {
+    const aggregation: Record<string, EnhancedWorkloadRow> = {};
+    const subjectsMap = new Map(allSubjects.map((s) => [s.id, s.name]));
+
+    const filteredCurriculums = curriculums.filter(
+      (c) => selectedAcademicYear === 'all' || c.academicYear === selectedAcademicYear
+    );
+
+    filteredCurriculums.forEach((curr) => {
+      curr.semesters.forEach((sem) => {
+        if (selectedSemesterId !== 'all' && sem.semesterId !== selectedSemesterId) return;
+        sem.subjects.forEach((subj) => {
+          if (selectedLecturerId !== 'all' && subj.lecturerId !== selectedLecturerId) return;
+
+          const key = `${subj.lecturerId}-${subj.subjectId}`;
+          if (!aggregation[key]) {
+            const lecturer = allLecturers.find((l) => l.id === subj.lecturerId);
+            aggregation[key] = {
+              lecturerId: subj.lecturerId,
+              lecturerName: lecturer?.displayName || 'B/D',
+              subjectId: subj.subjectId,
+              subjectName: subjectsMap.get(subj.subjectId) || 'B/D',
+              studyMode: '',
+              plannedHours: {},
+              scheduledHours: {},
+              totalPlanned: 0,
+              totalScheduled: 0,
+            };
+          }
+          aggregation[key].plannedHours[subj.type] = (aggregation[key].plannedHours[subj.type] || 0) + subj.hours;
+          aggregation[key].totalPlanned += subj.hours;
+        });
+      });
+    });
+
     const filteredTimetables = allTimetables.filter(
       (t) =>
         (selectedSemesterId === 'all' || t.semesterId === selectedSemesterId) &&
         (selectedAcademicYear === 'all' || t.academicYear === selectedAcademicYear)
     );
     const filteredTimetableIds = new Set(filteredTimetables.map((t) => t.id));
+    const entriesToReport = allEntries.filter((e) => filteredTimetableIds.has(e.timetableId));
 
-    let entriesToReport = allEntries.filter((e) => filteredTimetableIds.has(e.timetableId));
-
-    if (selectedLecturerId !== 'all') {
-      entriesToReport = entriesToReport.filter((e) => e.lecturerId === selectedLecturerId);
-    }
-
-    const aggregation: Record<string, WorkloadRow> = {};
     entriesToReport.forEach((entry) => {
-      const timetable = filteredTimetables.find((t) => t.id === entry.timetableId);
-      if (!timetable) return;
-      const key = `${entry.lecturerId}-${entry.subjectId}-${timetable.studyMode}`;
-      if (!aggregation[key]) {
-        aggregation[key] = {
-          lecturerId: entry.lecturerId,
-          lecturerName: entry.lecturerName,
-          subjectName: entry.subjectName,
-          studyMode: timetable.studyMode || 'stacjonarny',
-          hours: {},
-          totalHours: 0,
-        };
-      }
+      if (selectedLecturerId !== 'all' && entry.lecturerId !== selectedLecturerId) return;
 
-      const hoursPerBlock = 1.5;
-      const entryType = entry.type || 'Inne';
-      aggregation[key].hours[entryType] = (aggregation[key].hours[entryType] || 0) + hoursPerBlock;
-      aggregation[key].totalHours += hoursPerBlock;
+      const key = `${entry.lecturerId}-${entry.subjectId}`;
+      if (aggregation[key]) {
+        const hoursPerBlock = 1.5;
+        const entryType = entry.type || 'Inne';
+        aggregation[key].scheduledHours[entryType] = (aggregation[key].scheduledHours[entryType] || 0) + hoursPerBlock;
+        aggregation[key].totalScheduled += hoursPerBlock;
+        const timetable = filteredTimetables.find((t) => t.id === entry.timetableId);
+        if (timetable) aggregation[key].studyMode = timetable.studyMode || 'stacjonarny';
+      }
     });
+
     return Object.values(aggregation).sort((a, b) => a.lecturerName.localeCompare(b.lecturerName));
-  }, [selectedSemesterId, selectedAcademicYear, selectedLecturerId, allEntries, allTimetables]);
+  }, [
+    selectedSemesterId,
+    selectedAcademicYear,
+    selectedLecturerId,
+    allEntries,
+    allTimetables,
+    allLecturers,
+    curriculums,
+    allSubjects,
+  ]);
 
   const lecturerDetailData = useMemo(() => {
     if (selectedLecturerId === 'all' || !reportData) return [];
@@ -139,43 +215,132 @@ export const LecturerWorkloadReportPage = () => {
       });
   }, [selectedLecturerId, reportData, allEntries, allTimetables, selectedSemesterId, selectedAcademicYear]);
 
-  const handleExport = (format: 'xlsx' | 'pdf') => {
-    const semesterName = semesters.find((s) => s.id === selectedSemesterId)?.name || 'wszystkie';
-    const yearName = selectedAcademicYear === 'all' ? 'wszystkie' : selectedAcademicYear;
-    const fileNameDetails = { year: yearName, semester: semesterName };
+  const lecturerSubtotals = useMemo(() => {
+    const subtotals: Record<string, { totalPlanned: number; totalScheduled: number }> = {};
+    reportData.forEach((row) => {
+      if (!subtotals[row.lecturerId]) {
+        subtotals[row.lecturerId] = { totalPlanned: 0, totalScheduled: 0 };
+      }
+      subtotals[row.lecturerId].totalPlanned += row.totalPlanned;
+      subtotals[row.lecturerId].totalScheduled += row.totalScheduled;
+    });
+    return subtotals;
+  }, [reportData]);
 
-    if (format === 'xlsx') {
-      // Logika dla Excela jest prosta, więc może zostać w komponencie
-      const headers = ['Prowadzący', 'Przedmiot', 'Tryb', ...allTypes.map((t) => `${t} (h)`), 'Suma (h)'];
-      const body = reportData.map((row) => [
-        row.lecturerName,
-        row.subjectName,
-        row.studyMode,
-        ...allTypes.map((type) => row.hours[type] || 0),
-        row.totalHours,
-      ]);
-      const fileName = `raport_obciazenia_${yearName.replace('/', '-')}_${semesterName.replace(/ /g, '_')}`;
-      const worksheet = XLSX.utils.aoa_to_sheet([headers, ...body]);
-      const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, worksheet, 'Raport Obciążenia');
-      XLSX.writeFile(workbook, `${fileName}.xlsx`);
+  const handleExport = async (format: 'xlsx' | 'pdf') => {
+    if (reportData.length === 0) return;
+    const toastId = toast.loading(`Przygotowywanie danych do eksportu...`);
+
+    // Przygotowanie danych (wspólne dla obu formatów)
+    const allTypes = ['Wykład', 'Ćwiczenia', 'Laboratorium', 'Seminarium'];
+    const fileName = `raport_obciazenia_${new Date().toISOString().split('T')[0]}`;
+    if (format === 'pdf') {
+      const semesterName = semesters.find((s) => s.id === selectedSemesterId)?.name || 'wszystkie';
+      const yearName = selectedAcademicYear === 'all' ? 'wszystkie' : selectedAcademicYear;
+      exportWorkloadReportToPdf(
+        reportData.map((row) => ({
+          ...row,
+          hours: row.plannedHours, // or adapt as needed for your WorkloadRow type
+          totalHours: row.totalPlanned, // or adapt as needed for your WorkloadRow type
+        })),
+        allTypes,
+        { year: yearName, semester: semesterName }
+      );
+      return;
     }
 
-    if (format === 'pdf') {
-      // Wywołujemy naszą nową, dedykowaną funkcję z serwisu
-      exportWorkloadReportToPdf(reportData, allTypes, fileNameDetails);
+    if (format === 'xlsx') {
+      try {
+        const headers = [
+          'Prowadzący',
+          'Przedmiot',
+          'Tryb',
+          'Plan (W)',
+          'Plan (Ć)',
+          'Plan (L)',
+          'Plan (S)',
+          'Plan Σ',
+          'Real. (W)',
+          'Real. (Ć)',
+          'Real. (L)',
+          'Real. (S)',
+          'Real. Σ',
+        ];
+        const dataForSheet: (string | number)[][] = [headers];
+        const merges: XLSX.Range[] | undefined = [];
+        let lastLecturerId = '';
+        let mergeStartRow = 1; // Zaczynamy od wiersza 1 (bo 0 to nagłówek)
+
+        reportData.forEach((row, index) => {
+          const isSameLecturerAsPrevious = row.lecturerId === lastLecturerId;
+
+          // Dodajemy wiersz z danymi
+          dataForSheet.push([
+            isSameLecturerAsPrevious ? '' : row.lecturerName,
+            row.subjectName,
+            row.studyMode,
+            row.plannedHours['Wykład'] || 0,
+            row.plannedHours['Ćwiczenia'] || 0,
+            row.plannedHours['Laboratorium'] || 0,
+            row.plannedHours['Seminarium'] || 0,
+            row.totalPlanned || 0,
+            row.scheduledHours['Wykład'] || 0,
+            row.scheduledHours['Ćwiczenia'] || 0,
+            row.scheduledHours['Laboratorium'] || 0,
+            row.scheduledHours['Seminarium'] || 0,
+            row.totalScheduled || 0,
+          ]);
+
+          const isLastRowForLecturer =
+            index === reportData.length - 1 || reportData[index + 1].lecturerId !== row.lecturerId;
+
+          if (isLastRowForLecturer) {
+            // Dodajemy wiersz podsumowania
+            const subtotal = lecturerSubtotals[row.lecturerId];
+            dataForSheet.push([
+              '',
+              '',
+              '',
+              '',
+              '',
+              '',
+              'SUMA:',
+              subtotal.totalPlanned,
+              '',
+              '',
+              '',
+              '',
+              subtotal.totalScheduled,
+            ]);
+
+            // Definiujemy scalenie dla komórki z nazwiskiem prowadzącego
+            const currentRowIndex = dataForSheet.length - 2; // Indeks ostatniego wiersza z danymi
+            if (currentRowIndex > mergeStartRow) {
+              merges.push({ s: { r: mergeStartRow, c: 0 }, e: { r: currentRowIndex, c: 0 } });
+            }
+            mergeStartRow = currentRowIndex + 2; // Ustawiamy start dla następnej grupy
+          }
+
+          lastLecturerId = row.lecturerId;
+        });
+
+        const worksheet = XLSX.utils.aoa_to_sheet(dataForSheet);
+        worksheet['!merges'] = merges;
+
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Raport Obciążenia');
+        XLSX.writeFile(workbook, `${fileName}.xlsx`);
+        toast.success('Plik Excel wygenerowany!', { id: toastId });
+      } catch (e) {
+        toast.error('Błąd podczas generowania pliku Excel.', { id: toastId });
+        console.error(e);
+      }
     }
   };
 
-  const allTypes = useMemo(() => {
-    const types = new Set<string>();
-    reportData.forEach((row) => Object.keys(row.hours).forEach((type) => types.add(type)));
-    return ['Wykład', 'Ćwiczenia', 'Laboratorium', 'Seminarium', ...Array.from(types)].filter(
-      (value, index, self) => self.indexOf(value) === index
-    );
-  }, [reportData]);
-
   if (loading) return <CircularProgress />;
+
+  let lastLecturerIdRendered = '';
 
   return (
     <Box sx={{ p: 3 }}>
@@ -184,7 +349,7 @@ export const LecturerWorkloadReportPage = () => {
         to="/admin"
         startIcon={<ArrowBackIcon />}
       >
-        Wróć do pulpitu
+        Wróć do pulpit
       </Button>
       <Typography
         variant="h4"
@@ -284,53 +449,137 @@ export const LecturerWorkloadReportPage = () => {
       </Paper>
 
       <TableContainer component={Paper}>
-        <Table>
+        <Table
+          stickyHeader
+          size="small"
+        >
           <TableHead>
             <TableRow>
-              <TableCell>Prowadzący</TableCell>
-              <TableCell>Przedmiot</TableCell>
-              <TableCell>Tryb</TableCell>
-              {allTypes.map((type) => (
-                <TableCell
-                  key={type}
-                  align="right"
-                >
-                  {type} (h)
-                </TableCell>
-              ))}
               <TableCell
-                align="right"
+                rowSpan={2}
+                sx={{ verticalAlign: 'bottom' }}
+              >
+                Prowadzący
+              </TableCell>
+              <TableCell
+                rowSpan={2}
+                sx={{ verticalAlign: 'bottom' }}
+              >
+                Przedmiot
+              </TableCell>
+              <TableCell
+                rowSpan={2}
+                sx={{ verticalAlign: 'bottom' }}
+              >
+                Tryb
+              </TableCell>
+              <TableCell
+                colSpan={5}
+                align="center"
+              >
+                Godziny Planowane (z siatki)
+              </TableCell>
+              <TableCell
+                colSpan={5}
+                align="center"
+              >
+                Godziny Przydzielone (w planie)
+              </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell align="center">W</TableCell>
+              <TableCell align="center">Ć</TableCell>
+              <TableCell align="center">L</TableCell>
+              <TableCell align="center">S</TableCell>
+              <TableCell
+                align="center"
                 sx={{ fontWeight: 'bold' }}
               >
-                Suma (h)
+                Σ
+              </TableCell>
+              <TableCell align="center">W</TableCell>
+              <TableCell align="center">Ć</TableCell>
+              <TableCell align="center">L</TableCell>
+              <TableCell align="center">S</TableCell>
+              <TableCell
+                align="center"
+                sx={{ fontWeight: 'bold' }}
+              >
+                Σ
               </TableCell>
             </TableRow>
           </TableHead>
           <TableBody>
-            {reportData.map((row, index) => (
-              <TableRow
-                key={`${row.lecturerId}-${row.subjectName}-${row.studyMode}-${index}`}
-                hover
-              >
-                <TableCell>{row.lecturerName}</TableCell>
-                <TableCell>{row.subjectName}</TableCell>
-                <TableCell>{row.studyMode}</TableCell>
-                {allTypes.map((type) => (
-                  <TableCell
-                    key={type}
-                    align="right"
-                  >
-                    {row.hours[type] || '-'}
-                  </TableCell>
-                ))}
-                <TableCell
-                  align="right"
-                  sx={{ fontWeight: 'bold' }}
-                >
-                  {row.totalHours}
-                </TableCell>
-              </TableRow>
-            ))}
+            {reportData.map((row, index) => {
+              const showLecturer = row.lecturerId !== lastLecturerIdRendered;
+              if (showLecturer) {
+                lastLecturerIdRendered = row.lecturerId;
+              }
+              const isLastRowForLecturer =
+                index === reportData.length - 1 || reportData[index + 1].lecturerId !== row.lecturerId;
+
+              return (
+                <React.Fragment key={index}>
+                  <TableRow hover>
+                    <TableCell sx={{ fontWeight: showLecturer ? 600 : 'normal' }}>
+                      {showLecturer ? row.lecturerName : ''}
+                    </TableCell>
+                    <TableCell>{row.subjectName}</TableCell>
+                    {/* ✅ DODANA KOLUMNA "TRYB" */}
+                    <TableCell>{row.studyMode}</TableCell>
+                    {/* Godziny Planowane */}
+                    <TableCell align="center">{row.plannedHours['Wykład'] || '-'}</TableCell>
+                    <TableCell align="center">{row.plannedHours['Ćwiczenia'] || '-'}</TableCell>
+                    <TableCell align="center">{row.plannedHours['Laboratorium'] || '-'}</TableCell>
+                    <TableCell align="center">{row.plannedHours['Seminarium'] || '-'}</TableCell>
+                    <TableCell
+                      align="center"
+                      sx={{ fontWeight: 'bold' }}
+                    >
+                      {row.totalPlanned || '-'}
+                    </TableCell>
+                    {/* Godziny Przydzielone */}
+                    <TableCell align="center">{row.scheduledHours['Wykład'] || '-'}</TableCell>
+                    <TableCell align="center">{row.scheduledHours['Ćwiczenia'] || '-'}</TableCell>
+                    <TableCell align="center">{row.scheduledHours['Laboratorium'] || '-'}</TableCell>
+                    <TableCell align="center">{row.scheduledHours['Seminarium'] || '-'}</TableCell>
+                    <TableCell
+                      align="center"
+                      sx={{ fontWeight: 'bold' }}
+                    >
+                      {row.totalScheduled || '-'}
+                    </TableCell>
+                  </TableRow>
+
+                  {/* ✅ DODANY WIERSZ PODSUMOWANIA DLA PROWADZĄCEGO */}
+                  {isLastRowForLecturer && (
+                    <TableRow sx={{ backgroundColor: 'grey.200' }}>
+                      <TableCell colSpan={3} />
+                      <TableCell
+                        colSpan={4}
+                        align="right"
+                        sx={{ fontWeight: 'bold' }}
+                      >
+                        Suma dla prowadzącego:
+                      </TableCell>
+                      <TableCell
+                        align="center"
+                        sx={{ fontWeight: 'bold' }}
+                      >
+                        {lecturerSubtotals[row.lecturerId]?.totalPlanned || 0}
+                      </TableCell>
+                      <TableCell colSpan={4} />
+                      <TableCell
+                        align="center"
+                        sx={{ fontWeight: 'bold' }}
+                      >
+                        {lecturerSubtotals[row.lecturerId]?.totalScheduled || 0}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </React.Fragment>
+              );
+            })}
           </TableBody>
         </Table>
       </TableContainer>
@@ -368,11 +617,11 @@ export const LecturerWorkloadReportPage = () => {
                 {lecturerDetailData.map((entry) => (
                   <TableRow key={entry.id}>
                     <TableCell>
-                      {entry.subjectName}{' '}
                       <Chip
                         label={entry.type}
                         size="small"
-                      />
+                      />{' '}
+                      {entry.subjectName}
                     </TableCell>
                     <TableCell>{entry.day}</TableCell>
                     <TableCell>

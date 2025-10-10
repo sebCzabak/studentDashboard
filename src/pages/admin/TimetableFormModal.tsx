@@ -20,7 +20,7 @@ import {
   Typography,
 } from '@mui/material';
 import toast from 'react-hot-toast';
-import type { Timetable, Group, Semester, Curriculum } from '../../features/timetable/types';
+import type { Timetable, Group, Semester, Curriculum, RecurrenceType, StudyMode } from '../../features/timetable/types';
 
 interface TimetableFormModalProps {
   open: boolean;
@@ -41,22 +41,14 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
   semesters,
   groups,
 }) => {
-  // Logowanie danych wejściowych przy każdym renderowaniu
-  console.log('[Modal Props] Dane otrzymane z ManageTimetablesPage:', {
-    curriculums,
-    semesters,
-    groups,
-  });
-
   const [name, setName] = useState('');
   const [academicYear, setAcademicYear] = useState('');
-  const [studyMode, setStudyMode] = useState<'stacjonarny' | 'zaoczne' | 'podyplomowe' | 'anglojęzyczne'>(
-    'stacjonarny'
-  );
+  const [studyMode, setStudyMode] = useState<StudyMode>('stacjonarne');
   const [curriculumId, setCurriculumId] = useState('');
   const [semesterId, setSemesterId] = useState('');
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [recurrence, setRecurrence] = useState<RecurrenceType>('weekly');
 
   const isEditMode = useMemo(() => !!timetable?.id, [timetable]);
 
@@ -65,47 +57,32 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
       if (timetable) {
         setName(timetable.name || '');
         setAcademicYear(timetable.academicYear || '');
-        setStudyMode(timetable.studyMode || 'stacjonarny');
+        setStudyMode(timetable.studyMode || 'stacjonarne');
         setCurriculumId(timetable.curriculumId || '');
         setSemesterId(timetable.semesterId || '');
         setSelectedGroupIds(timetable.groupIds || []);
+        setRecurrence(timetable.recurrence || 'weekly');
       } else {
+        // Resetowanie formularza
         setName('');
         setAcademicYear('');
-        setStudyMode('stacjonarny');
+        setStudyMode('stacjonarne');
         setCurriculumId('');
         setSemesterId('');
         setSelectedGroupIds([]);
+        setRecurrence('weekly');
       }
     }
   }, [timetable, open]);
 
   const availableSemesters = useMemo(() => {
-    console.log(`[useMemo] Uruchomiono przeliczanie semestrów. Wybrana siatka (curriculumId): ${curriculumId}`);
-
-    if (!curriculumId) {
-      console.log('[useMemo] Zwracam pustą tablicę, bo nie wybrano siatki.');
-      return [];
-    }
-
+    if (!curriculumId) return [];
     const selectedCurriculum = curriculums.find((c) => c.id === curriculumId);
-    console.log('[useMemo] Znaleziony obiekt siatki (selectedCurriculum):', selectedCurriculum);
+    if (!selectedCurriculum?.semesters) return [];
 
-    if (!selectedCurriculum?.semesters) {
-      console.log("[useMemo] Zwracam pustą tablicę, bo znaleziona siatka nie ma pola 'semesters'.");
-      return [];
-    }
-
-    const result = selectedCurriculum.semesters
-      .map((curriculumSemester) => {
-        const foundSemester = semesters.find((s) => s.id === curriculumSemester.semesterId);
-        console.log(`[useMemo] Szukam semestru o ID ${curriculumSemester.semesterId}... Znaleziono:`, foundSemester);
-        return foundSemester;
-      })
+    return selectedCurriculum.semesters
+      .map((curriculumSemester) => semesters.find((s) => s.id === curriculumSemester.semesterId))
       .filter((s): s is Semester => s !== undefined);
-
-    console.log('[useMemo] Finalna, przefiltrowana lista dostępnych semestrów:', result);
-    return result;
   }, [curriculumId, curriculums, semesters]);
 
   useEffect(() => {
@@ -131,6 +108,7 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
       curriculumId,
       semesterId,
       groupIds: selectedGroupIds,
+      recurrence,
       curriculumName: curriculums.find((c) => c.id === curriculumId)?.programName,
       semesterName: semesters.find((s) => s.id === semesterId)?.name,
     };
@@ -180,12 +158,26 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
               onChange={(_, v) => v && setStudyMode(v)}
               fullWidth
             >
-              <ToggleButton value="stacjonarny">Stacjonarne</ToggleButton>
-              <ToggleButton value="zaoczne">Zaoczne</ToggleButton>
+              <ToggleButton value="stacjonarne">Dzienne</ToggleButton>
+              <ToggleButton value="niestacjonarne">Zaoczne</ToggleButton>
               <ToggleButton value="podyplomowe">Podyplomowe</ToggleButton>
               <ToggleButton value="anglojęzyczne">Anglojęzyczne</ToggleButton>
             </ToggleButtonGroup>
           </FormControl>
+
+          {(studyMode === 'stacjonarne' || studyMode === 'anglojęzyczne') && (
+            <FormControl fullWidth>
+              <InputLabel>Cykliczność zajęć (dla Kal. Google)</InputLabel>
+              <Select
+                value={recurrence}
+                label="Cykliczność zajęć (dla Kal. Google)"
+                onChange={(e) => setRecurrence(e.target.value as RecurrenceType)}
+              >
+                <MenuItem value="weekly">Co tydzień</MenuItem>
+                <MenuItem value="bi-weekly">Co 2 tygodnie</MenuItem>
+              </Select>
+            </FormControl>
+          )}
 
           <FormControl
             fullWidth
@@ -197,7 +189,7 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
               label="Siatka Programowa"
               onChange={(e) => setCurriculumId(e.target.value)}
             >
-              {(curriculums || []).map((c) => (
+              {curriculums.map((c) => (
                 <MenuItem
                   key={c.id}
                   value={c.id}
@@ -251,7 +243,7 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
                 </Box>
               )}
             >
-              {(groups || []).map((g) => (
+              {groups.map((g) => (
                 <MenuItem
                   key={g.id}
                   value={g.id}

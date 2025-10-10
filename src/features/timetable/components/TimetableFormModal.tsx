@@ -20,7 +20,7 @@ import {
   Typography,
 } from '@mui/material';
 import toast from 'react-hot-toast';
-import type { Timetable, Group, Semester, Curriculum } from '../types';
+import type { Timetable, Group, Semester, Curriculum, RecurrenceType } from '../types';
 
 interface TimetableFormModalProps {
   open: boolean;
@@ -50,6 +50,7 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
   const [semesterId, setSemesterId] = useState('');
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+  const [recurrence, setRecurrence] = useState<RecurrenceType>('weekly');
 
   const isEditMode = useMemo(() => !!timetable?.id, [timetable]);
 
@@ -58,10 +59,15 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
       if (timetable) {
         setName(timetable.name || '');
         setAcademicYear(timetable.academicYear || '');
-        setStudyMode(timetable.studyMode || 'stacjonarny');
+        setStudyMode(
+          ['stacjonarny', 'zaoczne', 'podyplomowe', 'anglojęzyczne'].includes(timetable.studyMode as string)
+            ? (timetable.studyMode as typeof studyMode)
+            : 'stacjonarny'
+        );
         setCurriculumId(timetable.curriculumId || '');
         setSemesterId(timetable.semesterId || '');
         setSelectedGroupIds(timetable.groupIds || []);
+        setRecurrence(timetable.recurrence || 'weekly');
       } else {
         setName('');
         setAcademicYear('');
@@ -69,6 +75,7 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
         setCurriculumId('');
         setSemesterId('');
         setSelectedGroupIds([]);
+        setRecurrence('weekly');
       }
     }
   }, [timetable, open]);
@@ -108,6 +115,7 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
       groupIds: selectedGroupIds,
       curriculumName: curriculums.find((c) => c.id === curriculumId)?.programName,
       semesterName: semesters.find((s) => s.id === semesterId)?.name,
+      recurrence,
     };
     await onSave(data, timetable?.id);
     setLoading(false);
@@ -140,6 +148,18 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
             InputProps={{ readOnly: true }}
             fullWidth
           />
+          <FormControl fullWidth>
+            <InputLabel>Cykliczność zajęć (dla Kal. Google)</InputLabel>
+            <Select
+              value={recurrence}
+              label="Cykliczność zajęć (dla Kal. Google)"
+              onChange={(e) => setRecurrence(e.target.value as RecurrenceType)}
+            >
+              <MenuItem value="weekly">Co tydzień</MenuItem>
+              <MenuItem value="bi-weekly">Co 2 tygodnie</MenuItem>
+              <MenuItem value="monthly">Co 4 tygodnie (z Google Meet)</MenuItem>
+            </Select>
+          </FormControl>
           <FormControl>
             <Typography
               variant="caption"
