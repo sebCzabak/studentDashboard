@@ -22,15 +22,9 @@ import {
   Checkbox,
   type SelectChangeEvent,
   Paper,
+  TextField,
 } from '@mui/material';
-import type {
-  ScheduleEntry,
-  Group,
-  Room,
-  Session,
-  Specialization,
-  SemesterDate,
-} from '../../../features/timetable/types';
+import type { ScheduleEntry, Group, Room, Specialization, SemesterDate } from '../../../features/timetable/types';
 
 interface ScheduleEntryFormModalProps {
   open: boolean;
@@ -60,6 +54,7 @@ export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
   const [specializationIds, setSpecializationIds] = useState<string[]>([]);
   const [sessionIds, setSessionIds] = useState<string[]>([]);
   const [format, setFormat] = useState<'stacjonarny' | 'online'>('stacjonarny');
+  const [notes, setNotes] = useState<string>('');
 
   useEffect(() => {
     if (initialData) {
@@ -78,6 +73,7 @@ export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
       setSessionIds(initialData.sessionIds || []);
 
       setFormat(initialData.format || 'stacjonarny');
+      setNotes(initialData.notes || '');
     }
   }, [initialData, availableGroups, availableRooms, availableSpecializations]);
 
@@ -90,6 +86,7 @@ export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
       format,
       groupNames: groupIds.map((id) => availableGroups.find((g) => g.id === id)?.name || ''),
       roomName: availableRooms.find((r) => r.id === roomId)?.name || '',
+      notes: notes,
     };
     onSave(entryData);
   };
@@ -205,7 +202,6 @@ export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
             </Select>
           </FormControl>
 
-          {/* ✅ POPRAWKA: Nowy interfejs do wyboru zjazdów */}
           {isSessionBased && (
             <>
               <Divider sx={{ my: 2 }} />
@@ -238,6 +234,16 @@ export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
           )}
 
           <Divider sx={{ my: 1 }} />
+          {/* ✅ NEW FIELD: Text field for notes/dates */}
+          <TextField
+            label="Additional Notes/Dates (for PDF/Excel)"
+            fullWidth
+            multiline
+            rows={2}
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="e.g., 'Only on even weeks', 'Mid-term exam'"
+          />
           <FormControl>
             <Typography
               variant="caption"

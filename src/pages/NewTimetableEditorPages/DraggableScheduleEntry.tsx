@@ -1,10 +1,10 @@
 import React, { useMemo } from 'react';
 import { useDraggable } from '@dnd-kit/core';
-import { Paper, Typography, Box, IconButton, Chip } from '@mui/material';
+import { Paper, Typography, Box, IconButton, Chip, Tooltip } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
+import EventAvailableIcon from '@mui/icons-material/EventAvailable'; // Import ikony kalendarza
 import type { ScheduleEntry, Specialization } from '../../features/timetable/types';
 
-// ✅ POPRAWKA: Dodajemy `allSpecializations` do definicji propsów
 interface DraggableScheduleEntryProps {
   entry: ScheduleEntry;
   onClick: (entry: ScheduleEntry) => void;
@@ -16,7 +16,7 @@ export const DraggableScheduleEntry: React.FC<DraggableScheduleEntryProps> = ({
   entry,
   onClick,
   isReadOnly,
-  allSpecializations, // ✅ Odbieramy nowy prop
+  allSpecializations,
 }) => {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id: entry.id,
@@ -43,6 +43,25 @@ export const DraggableScheduleEntry: React.FC<DraggableScheduleEntryProps> = ({
     return entry.specializationIds.map((id) => specMap.get(id)).filter(Boolean) as Specialization[];
   }, [entry.specializationIds, allSpecializations]);
 
+  // Przygotowujemy treść podpowiedzi (tooltipa)
+  const datesTooltipContent = useMemo(() => {
+    if (!entry.specificDates || entry.specificDates.length === 0) return null;
+    return (
+      <Box>
+        <Typography
+          variant="caption"
+          display="block"
+          sx={{ mb: 0.5, fontWeight: 'bold' }}
+        >
+          Zajęcia w konkretnych dniach:
+        </Typography>
+        <Typography variant="caption">
+          {entry.specificDates.map((ts) => ts.toDate().toLocaleDateString('pl-PL')).join(', ')}
+        </Typography>
+      </Box>
+    );
+  }, [entry.specificDates]);
+
   return (
     <Paper
       ref={setNodeRef}
@@ -58,7 +77,7 @@ export const DraggableScheduleEntry: React.FC<DraggableScheduleEntryProps> = ({
         backgroundColor: 'primary.light',
         color: 'primary.contrastText',
         cursor: isReadOnly ? 'not-allowed' : 'grab',
-        '&:hover': { backgroundColor: 'primary.dark', '& .edit-icon': { opacity: 1 } },
+        '&:hover': { backgroundColor: 'primary.dark', '& .edit-icon, & .date-icon': { opacity: 1 } },
       }}
     >
       <Box>
@@ -68,7 +87,6 @@ export const DraggableScheduleEntry: React.FC<DraggableScheduleEntryProps> = ({
         >
           {entry.subjectName}
         </Typography>
-
         <Typography variant="caption">{entry.lecturerName}</Typography>
         <br />
         <Typography
@@ -90,6 +108,28 @@ export const DraggableScheduleEntry: React.FC<DraggableScheduleEntryProps> = ({
             />
           ))}
         </Box>
+      )}
+
+      {/* Wyświetlamy ikonę kalendarza z podpowiedzią, jeśli są zdefiniowane daty */}
+      {datesTooltipContent && (
+        <Tooltip
+          title={datesTooltipContent}
+          arrow
+        >
+          <EventAvailableIcon
+            className="date-icon"
+            sx={{
+              position: 'absolute',
+              bottom: 4,
+              right: 4,
+              fontSize: '1rem',
+              color: 'rgba(255, 255, 255, 0.8)',
+              opacity: 0,
+              transition: 'opacity 0.2s',
+              cursor: 'pointer',
+            }}
+          />
+        </Tooltip>
       )}
 
       {!isReadOnly && (

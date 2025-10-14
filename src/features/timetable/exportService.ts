@@ -1,12 +1,23 @@
 import { collection, getDocs, query, where } from 'firebase/firestore';
 import { db } from '../../config/firebase';
-import type { ScheduleEntry, Timetable, Specialization, WorkloadRow, SemesterDate } from './types';
+import type {
+  ScheduleEntry,
+  Timetable,
+  Specialization,
+  DayOfWeek,
+  WorkloadRow,
+  Semester,
+  SemesterDate,
+  EntryType,
+} from './types';
 import { TIME_SLOTS, DAYS } from './constants';
 import toast from 'react-hot-toast';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import type { DayOfWeek } from '../user/types';
+
+// --- Helper Functions ---
+
 const imageToBase64 = (url: string): Promise<string> =>
   fetch(url)
     .then((response) => {
@@ -29,7 +40,25 @@ const normalizeDate = (date: Date): Date => {
   return newDate;
 };
 
-// --- Funkcje eksportu ---
+const getTypeAbbreviation = (type: EntryType | undefined | null): string => {
+  if (!type) return 'Z';
+  switch (type) {
+    case 'Wykład':
+      return 'W';
+    case 'Ćwiczenia':
+      return 'Ć';
+    case 'Laboratorium':
+      return 'L';
+    case 'Seminarium':
+      return 'S';
+    case 'Inne':
+      return 'I';
+    default:
+      return 'Z';
+  }
+};
+
+// --- Export Functions ---
 
 export const exportTimetableToExcel = async (timetable: Timetable) => {
   const toastId = toast.loading('Przygotowywanie danych do Excela...');
@@ -76,14 +105,22 @@ export const exportTimetableToExcel = async (timetable: Timetable) => {
             .filter(
               (e) => e.date?.toDate().toISOString().split('T')[0] === dateOnly && e.startTime === timeSlot.startTime
             )
-            .map((entry) => `${entry.subjectName}\n${entry.lecturerName}\nSala: ${entry.roomName}`)
+            .map((entry) => {
+              let entryText = `${entry.subjectName}\n${entry.lecturerName}\nSala: ${entry.roomName}`;
+              if (entry.notes) entryText += `\nNotatki: ${entry.notes}`;
+              return entryText;
+            })
             .join('\n---\n');
           row.push(cellEntries);
         }
         dataForSheet.push(row);
       }
     } else {
-      const daysToDisplay: DayOfWeek[] = ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek'];
+      const daysToDisplay: DayOfWeek[] =
+        timetable.studyMode === 'niestacjonarne'
+          ? ['Sobota', 'Niedziela']
+          : ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek'];
+
       const headers = ['Godzina', ...daysToDisplay];
       dataForSheet.push(headers);
 
@@ -92,7 +129,15 @@ export const exportTimetableToExcel = async (timetable: Timetable) => {
         for (const day of daysToDisplay) {
           const cellEntries = entries
             .filter((e) => e.day === day && e.startTime === timeSlot.startTime)
-            .map((entry) => `${entry.subjectName}\n${entry.lecturerName}\nSala: ${entry.roomName}`)
+            .map((entry) => {
+              const datesText =
+                entry.specificDates && entry.specificDates.length > 0
+                  ? `\nDaty: ${entry.specificDates.map((ts) => ts.toDate().toLocaleDateString('pl-PL')).join(', ')}`
+                  : '';
+              let entryText = `${entry.subjectName}\n${entry.lecturerName}\nSala: ${entry.roomName}${datesText}`;
+              if (entry.notes) entryText += `\nNotatki: ${entry.notes}`;
+              return entryText;
+            })
             .join('\n---\n');
           row.push(cellEntries);
         }
@@ -125,6 +170,7 @@ export const exportTimetableToExcel = async (timetable: Timetable) => {
 export const exportTimetableToPdf = async (timetable: Timetable) => {
   const toastId = toast.loading('Przygotowywanie danych do PDF...');
   try {
+    // Step 1: Fetch all necessary data in parallel
     const [entriesSnapshot, specializationsSnapshot, semesterDatesSnap, logoBase64, fontResponse, boldFontResponse] =
       await Promise.all([
         getDocs(query(collection(db, 'scheduleEntries'), where('timetableId', '==', timetable.id))),
@@ -148,6 +194,7 @@ export const exportTimetableToPdf = async (timetable: Timetable) => {
     toast.loading('Generowanie pliku PDF...', { id: toastId });
     const doc = new jsPDF({ orientation: 'landscape' });
 
+    // Step 2: Register fonts for Polish characters
     const fontBuffer = await fontResponse.arrayBuffer();
     const boldFontBuffer = await boldFontResponse.arrayBuffer();
     const fontBase64 = btoa(new Uint8Array(fontBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ''));
@@ -160,6 +207,7 @@ export const exportTimetableToPdf = async (timetable: Timetable) => {
     doc.addFont('Roboto-Bold.ttf', 'Roboto', 'bold');
     doc.setFont('Roboto', 'normal');
 
+    // Step 3: Create specialization legend
     const usedSpecIds = new Set(entries.flatMap((e) => e.specializationIds || []));
     const legendMap: Record<string, number> = {};
     const legendText: string[] = [];
@@ -174,91 +222,62 @@ export const exportTimetableToPdf = async (timetable: Timetable) => {
 
     const isSessionBased = timetable.studyMode === 'niestacjonarne' || timetable.studyMode === 'podyplomowe';
 
+    // Step 4: Build the table headers and body based on study mode
+    let tableHeaders: string[] = [];
+    const tableBody: string[][] = [];
+
     if (isSessionBased) {
+      // Logic for DATE-BASED schedules (zaoczne/podyplomowe)
       const semesterDates = semesterDatesSnap.docs
         .map((doc) => doc.data() as SemesterDate)
         .sort((a, b) => a.date.toMillis() - b.date.toMillis());
-      const entriesMap = new Map<string, ScheduleEntry[]>();
-      entries.forEach((entry) => {
-        if (!entry.date) return;
-        const keyDate = normalizeDate(entry.date.toDate()).getTime();
-        const mapKey = `${keyDate}_${entry.startTime}`;
-        if (!entriesMap.has(mapKey)) entriesMap.set(mapKey, []);
-        entriesMap.get(mapKey)?.push(entry);
-      });
+      const uniqueDates = Array.from(
+        new Set(semesterDates.map((sd) => sd.date.toDate().toISOString().split('T')[0]))
+      ).map((d) => new Date(d));
 
-      const daysToGroup = 2;
-      const groupedDates = [];
-      for (let i = 0; i < semesterDates.length; i += daysToGroup) {
-        groupedDates.push(semesterDates.slice(i, i + daysToGroup));
+      if (uniqueDates.length === 0) {
+        toast.error('Brak zdefiniowanych dat w Kalendarzu Semestru dla tego planu.', { id: toastId });
+        return;
       }
 
-      groupedDates.forEach((week, index) => {
-        if (index > 0) doc.addPage();
-        const weekDates = week.map((sd) => sd.date.toDate());
-        const weekHeaders = week.map(
-          (sd) =>
-            `${DAYS[sd.date.toDate().getDay()]} (${sd.date
-              .toDate()
-              .toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit' })})`
-        );
-        const tableBody = [];
-        for (const timeSlot of TIME_SLOTS) {
-          const rowData = [timeSlot.label];
-          for (const date of weekDates) {
-            const keyDate = normalizeDate(date).getTime();
-            const mapKey = `${keyDate}_${timeSlot.startTime}`;
-            const cellEntries = (entriesMap.get(mapKey) || [])
-              .map((entry) => {
-                const specNumbers = (entry.specializationIds || [])
-                  .map((id) => legendMap[id])
-                  .filter(Boolean)
-                  .join(',');
-                let entryText = `${entry.subjectName} (${(entry.type || 'Z').slice(0, 1)})\n${
-                  entry.lecturerName
-                }\nSala: ${entry.roomName}`;
-                if (specNumbers) entryText += `\n[Spec: ${specNumbers}]`;
-                return entryText;
-              })
-              .join('\n---\n');
-            rowData.push(cellEntries);
-          }
-          tableBody.push(rowData);
-        }
+      tableHeaders = [
+        'Godziny',
+        ...uniqueDates.map(
+          (date) => `${DAYS[date.getDay()]} (${date.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit' })})`
+        ),
+      ];
 
-        doc.text(`Plan zajęć: ${timetable.name} (Zjazd ${index + 1})`, 14, 15);
-        autoTable(doc, {
-          startY: 20,
-          head: [['Godziny', ...weekHeaders]],
-          body: tableBody,
-          theme: 'grid',
-          styles: { font: 'Roboto', fontSize: 8, valign: 'top' },
-          headStyles: { font: 'Roboto', fontStyle: 'bold', fillColor: [44, 62, 80], textColor: 255 },
-          didDrawPage: (data) => {
-            try {
-              const pageWidth = doc.internal.pageSize.getWidth();
-              const pageHeight = doc.internal.pageSize.getHeight();
-              doc.saveGraphicsState();
-              doc.setGState(new (doc as any).GState({ opacity: 0.05 }));
-              doc.addImage(logoBase64, 'PNG', (pageWidth - 100) / 2, (pageHeight - 100) / 2, 100, 100);
-              doc.restoreGraphicsState();
-            } catch (e) {
-              console.error('Błąd znaku wodnego', e);
-            }
-          },
-        });
-        if (legendText.length > 0) {
-          const finalY = (doc as any).lastAutoTable.finalY;
-          doc.setFontSize(9);
-          doc.text('Legenda specjalizacji:', 14, finalY + 10);
-          doc.text(legendText.join(' | '), 14, finalY + 15);
-        }
-      });
-    } else {
-      const daysToDisplay: DayOfWeek[] = ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek'];
-      const tableBody = [];
       for (const timeSlot of TIME_SLOTS) {
-        const rowData = [timeSlot.label];
+        const rowData = [timeSlot.pdfLabel];
+        for (const date of uniqueDates) {
+          const dateOnly = date.toISOString().split('T')[0];
+          const cellEntries = entries
+            .filter(
+              (e) => e.date?.toDate().toISOString().split('T')[0] === dateOnly && e.startTime === timeSlot.startTime
+            )
+            .map((entry) => {
+              const specNumbers = (entry.specializationIds || [])
+                .map((id) => legendMap[id])
+                .filter(Boolean)
+                .join(',');
+              const typeAbbr = getTypeAbbreviation(entry.type);
+              let entryText = `${entry.subjectName} (${typeAbbr})\n${entry.lecturerName}\nSala: ${entry.roomName}`;
+              if (specNumbers) entryText += `\n[Spec: ${specNumbers}]`;
+              if (entry.notes) entryText += `\nNotatki: ${entry.notes}`;
+              return entryText;
+            })
+            .join('\n---\n');
+          rowData.push(cellEntries);
+        }
+        tableBody.push(rowData);
+      }
+    } else {
+      // Logic for DAY-BASED schedules (stacjonarne/anglojęzyczne)
+      const daysToDisplay: DayOfWeek[] = ['Sobota', 'Niedziela'];
+      tableHeaders = ['Godziny', ...daysToDisplay];
+
+      for (const timeSlot of TIME_SLOTS) {
+        const rowData = [timeSlot.pdfLabel];
         for (const day of daysToDisplay) {
           const cellEntries = entries
             .filter((e) => e.day === day && e.startTime === timeSlot.startTime)
@@ -267,10 +286,15 @@ export const exportTimetableToPdf = async (timetable: Timetable) => {
                 .map((id) => legendMap[id])
                 .filter(Boolean)
                 .join(',');
-              let entryText = `${entry.subjectName} (${(entry.type || 'Z').slice(0, 1)})\n${
-                entry.lecturerName
-              }\nSala: ${entry.roomName}`;
+              const typeAbbr = getTypeAbbreviation(entry.type);
+              const datesText =
+                entry.specificDates && entry.specificDates.length > 0
+                  ? `\nDaty: ${entry.specificDates.map((ts) => ts.toDate().toLocaleDateString('pl-PL')).join(', ')}`
+                  : '';
+              let entryText = `${entry.subjectName} (${typeAbbr})\n${entry.lecturerName}\nSala: ${entry.roomName}`;
               if (specNumbers) entryText += `\n[Spec: ${specNumbers}]`;
+              if (entry.notes) entryText += `\nNotatki: ${entry.notes}`;
+              if (datesText) entryText += datesText;
               return entryText;
             })
             .join('\n---\n');
@@ -278,34 +302,40 @@ export const exportTimetableToPdf = async (timetable: Timetable) => {
         }
         tableBody.push(rowData);
       }
-      doc.text(`Plan zajęć: ${timetable.name}`, 14, 15);
-      autoTable(doc, {
-        startY: 20,
-        head: [['Godziny', ...daysToDisplay]],
-        body: tableBody,
-        theme: 'grid',
-        styles: { font: 'Roboto', fontSize: 8, valign: 'top' },
-        headStyles: { font: 'Roboto', fontStyle: 'bold', fillColor: [44, 62, 80], textColor: 255 },
-        didDrawPage: (data) => {
-          try {
-            const pageWidth = doc.internal.pageSize.getWidth();
-            const pageHeight = doc.internal.pageSize.getHeight();
-            doc.saveGraphicsState();
-            doc.setGState(new (doc as any).GState({ opacity: 0.05 }));
-            doc.addImage(logoBase64, 'PNG', (pageWidth - 100) / 2, (pageHeight - 100) / 2, 100, 100);
-            doc.restoreGraphicsState();
-          } catch (e) {
-            console.error('Błąd znaku wodnego', e);
-          }
-        },
-      });
-      if (legendText.length > 0) {
-        const finalY = (doc as any).lastAutoTable.finalY;
-        doc.setFontSize(9);
-        doc.text('Legenda specjalizacji:', 14, finalY + 10);
-        doc.text(legendText.join(' | '), 14, finalY + 15);
-      }
     }
+
+    // Step 5: Generate the PDF
+    doc.text(`Plan zajęć: ${timetable.name}`, 14, 15);
+    autoTable(doc, {
+      startY: 20,
+      head: [tableHeaders],
+      body: tableBody,
+      theme: 'grid',
+      styles: { font: 'Roboto', fontSize: 7, valign: 'top', cellPadding: 2 },
+      headStyles: { font: 'Roboto', fontStyle: 'bold', fillColor: [44, 62, 80], textColor: 255 },
+      didDrawPage: (data) => {
+        try {
+          const pageWidth = doc.internal.pageSize.getWidth();
+          const pageHeight = doc.internal.pageSize.getHeight();
+          doc.saveGraphicsState();
+          doc.setGState(new (doc as any).GState({ opacity: 0.05 }));
+          doc.addImage(logoBase64, 'PNG', (pageWidth - 100) / 2, (pageHeight - 100) / 2, 100, 100);
+          doc.restoreGraphicsState();
+        } catch (e) {
+          console.error('Błąd znaku wodnego', e);
+        }
+
+        if (legendText.length > 0) {
+          const finalY = (doc as any).lastAutoTable.finalY;
+          if (finalY < doc.internal.pageSize.getHeight() - 20) {
+            // Draw only if there's space
+            doc.setFontSize(9);
+            doc.text('Legenda specjalizacji:', 14, finalY + 10);
+            doc.text(legendText, 14, finalY + 15);
+          }
+        }
+      },
+    });
 
     doc.save(`plan_zajec_${timetable.name.replace(/ /g, '_')}.pdf`);
     toast.success('PDF został wygenerowany!', { id: toastId });

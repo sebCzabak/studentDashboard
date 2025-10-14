@@ -103,6 +103,7 @@ export interface ScheduleEntry {
   format?: 'stacjonarny' | 'online';
   date?: Timestamp;
   sessionIds?: string[];
+  notes?: string;
 }
 
 export interface LecturerAvailability {
