@@ -23,6 +23,8 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import {
   getSubjects,
@@ -139,6 +141,7 @@ export const ManageSubjectsPage = () => {
   const [subjects, setSubjects] = useState<Subject[]>([]);
   const [filteredSubjects, setFilteredSubjects] = useState<Subject[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedDepartment, setSelectedDepartment] = useState<string>('all');
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingSubject, setEditingSubject] = useState<Subject | null>(null);
@@ -164,9 +167,20 @@ export const ManageSubjectsPage = () => {
   }, []);
 
   useEffect(() => {
-    const results = subjects.filter((subject) => subject.name.toLowerCase().includes(searchTerm.toLowerCase()));
+    let results = subjects;
+
+    // Filtrowanie po katedrze
+    if (selectedDepartment !== 'all') {
+      results = results.filter((subject) => subject.department === selectedDepartment);
+    }
+
+    // Filtrowanie po nazwie
+    if (searchTerm) {
+      results = results.filter((subject) => subject.name.toLowerCase().includes(searchTerm.toLowerCase()));
+    }
+
     setFilteredSubjects(results);
-  }, [searchTerm, subjects]);
+  }, [searchTerm, selectedDepartment, subjects]);
 
   const handleSave = (data: Omit<Subject, 'id'>) => {
     const saveAction = async () => {
@@ -237,7 +251,7 @@ export const ManageSubjectsPage = () => {
           fullWidth
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
-          sx={{ mb: 3 }}
+          sx={{ mb: 2 }}
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
@@ -246,6 +260,27 @@ export const ManageSubjectsPage = () => {
             ),
           }}
         />
+
+        <Box sx={{ borderBottom: 1, borderColor: 'divider', mb: 3 }}>
+          <Tabs
+            value={selectedDepartment}
+            onChange={(_, newValue) => setSelectedDepartment(newValue)}
+            variant="scrollable"
+            scrollButtons="auto"
+          >
+            <Tab
+              label="Wszystkie"
+              value="all"
+            />
+            {departments.map((department) => (
+              <Tab
+                key={department.id}
+                label={department.name}
+                value={department.name}
+              />
+            ))}
+          </Tabs>
+        </Box>
 
         <TableContainer>
           <Table>

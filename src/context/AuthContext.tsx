@@ -1,7 +1,7 @@
 import { createContext, useState, useContext, type ReactNode, useEffect } from 'react';
 import { type User, onAuthStateChanged } from 'firebase/auth';
-import { auth, db } from '../config/firebase'; // Upewnij się, że importujesz `db`
-import { doc, getDoc } from 'firebase/firestore'; // Dodaj importy z firestore
+import { auth, db } from '../config/firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { Box } from '@mui/material';
 import { LoadingAnimation } from '../assets/animations/LoadingAnimation';
 
@@ -12,7 +12,7 @@ interface AuthContextType {
   accessToken: string | null;
   profileInfo: ProfileInfo | null;
   role: string | null;
-  permissions: string[]; // Nowe pole na uprawnienia
+  permissions: string[];
   loading: boolean;
   login: (
     newUser: User,
@@ -33,7 +33,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [profileInfo, setProfileInfo] = useState<ProfileInfo | null>(null);
   const [role, setRole] = useState<string | null>(null);
-  const [permissions, setPermissions] = useState<string[]>([]); // Nowy stan
+  const [permissions, setPermissions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -58,7 +58,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setRole(null);
         setAccessToken(null);
         setProfileInfo(null);
-        setPermissions([]); // Poprawka: Czyścimy uprawnienia
+        setPermissions([]);
       }
       setLoading(false);
     });
@@ -66,7 +66,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     return () => unsubscribe();
   }, []);
 
-  // Poprawka: Dodajemy `userPermissions` do parametrów funkcji
   const login = (
     newUser: User,
     token: string | null,
@@ -81,7 +80,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setAccessToken(token);
     setProfileInfo(profile);
     setRole(userRole);
-    setPermissions(userPermissions); // Poprawka: Zapisujemy uprawnienia
+    setPermissions(userPermissions);
   };
 
   const logout = () => {
@@ -102,7 +101,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }
 
   return (
-    // Poprawka: Dodajemy `permissions` do wartości Providera
     <AuthContext.Provider value={{ user, accessToken, profileInfo, role, loading, login, logout, permissions }}>
       {children}
     </AuthContext.Provider>

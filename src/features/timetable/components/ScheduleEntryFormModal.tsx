@@ -78,14 +78,19 @@ export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
   }, [initialData, availableGroups, availableRooms, availableSpecializations]);
 
   const handleSave = () => {
+    // Walidacja: dla zajęć stacjonarnych sala jest wymagana
+    if (format === 'stacjonarny' && !roomId) {
+      return; // FormControl z required powinien to obsłużyć, ale na wszelki wypadek
+    }
+
     const entryData: Partial<ScheduleEntry> = {
       groupIds,
-      roomId,
+      roomId: format === 'online' ? '' : roomId, // Wyczyść salę dla zajęć online
       specializationIds,
       sessionIds,
       format,
       groupNames: groupIds.map((id) => availableGroups.find((g) => g.id === id)?.name || ''),
-      roomName: availableRooms.find((r) => r.id === roomId)?.name || '',
+      roomName: format === 'online' ? '' : availableRooms.find((r) => r.id === roomId)?.name || '',
       notes: notes,
     };
     onSave(entryData);
@@ -154,14 +159,18 @@ export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
 
           <FormControl
             fullWidth
-            required
+            required={format === 'stacjonarny'}
           >
             <InputLabel>Sala</InputLabel>
             <Select
               value={roomId}
               label="Sala"
               onChange={(e) => setRoomId(e.target.value)}
+              disabled={format === 'online'}
             >
+              <MenuItem value="">
+                <em>Brak (tylko dla zajęć online)</em>
+              </MenuItem>
               {availableRooms.map((room) => (
                 <MenuItem
                   key={room.id}
@@ -171,6 +180,15 @@ export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
                 </MenuItem>
               ))}
             </Select>
+            {format === 'online' && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ mt: 0.5, display: 'block' }}
+              >
+                Zajęcia online nie wymagają sali
+              </Typography>
+            )}
           </FormControl>
 
           <FormControl fullWidth>
@@ -244,23 +262,40 @@ export const ScheduleEntryFormModal: React.FC<ScheduleEntryFormModalProps> = ({
             onChange={(e) => setNotes(e.target.value)}
             placeholder="e.g., 'Only on even weeks', 'Mid-term exam'"
           />
-          <FormControl>
+          <FormControl fullWidth>
             <Typography
-              variant="caption"
-              color="text.secondary"
+              variant="subtitle2"
               sx={{ mb: 1 }}
             >
-              Forma zajęć (dla Kal. Google)
+              Forma zajęć
             </Typography>
             <ToggleButtonGroup
               color="primary"
               value={format}
               exclusive
-              onChange={(_, v) => v && setFormat(v)}
+              onChange={(_, v) => {
+                if (v) {
+                  setFormat(v);
+                  // Jeśli zmieniamy na online, wyczyść salę
+                  if (v === 'online') {
+                    setRoomId('');
+                  }
+                }
+              }}
+              fullWidth
             >
               <ToggleButton value="stacjonarny">Stacjonarne</ToggleButton>
               <ToggleButton value="online">Online</ToggleButton>
             </ToggleButtonGroup>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ mt: 0.5, display: 'block' }}
+            >
+              {format === 'online'
+                ? 'Zajęcia online będą eksportowane do Kalendarza Google z linkiem do spotkania'
+                : 'Zajęcia stacjonarne wymagają wyboru sali'}
+            </Typography>
           </FormControl>
         </Stack>
       </DialogContent>

@@ -4,18 +4,42 @@ import {
   Typography,
   Button,
   CircularProgress,
-  Accordion,
-  AccordionSummary,
-  AccordionDetails,
+  Grid,
+  Card,
+  CardContent,
+  CardActions,
+  IconButton,
+  TextField,
+  InputAdornment,
+  Paper,
+  Chip,
+  Drawer,
+  Divider,
   List,
   ListItem,
   ListItemText,
-  IconButton,
+  ListItemSecondaryAction,
+  Checkbox,
+  Toolbar,
+  Tooltip,
+  Badge,
+  Stack,
+  Alert,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
 } from '@mui/material';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AddIcon from '@mui/icons-material/Add';
 import EditIcon from '@mui/icons-material/Edit';
 import DeleteIcon from '@mui/icons-material/Delete';
+import EmailIcon from '@mui/icons-material/Email';
+import SearchIcon from '@mui/icons-material/Search';
+import FilterListIcon from '@mui/icons-material/FilterList';
+import GroupIcon from '@mui/icons-material/Group';
+import SchoolIcon from '@mui/icons-material/School';
+import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import CloseIcon from '@mui/icons-material/Close';
 import {
   getGroups,
   addSpecialization,
@@ -28,15 +52,21 @@ import {
 } from '../../features/groups/groupsService';
 import toast from 'react-hot-toast';
 import { Link as RouterLink } from 'react-router-dom';
-import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import { GroupFormModal } from '../../features/timetable/components/GroupFormModal';
 import { SpecializationFormModal } from '../../features/groups/components/SpecializationFormModal';
 import type { Group, Specialization } from '../../features/timetable/types';
+
+const DRAWER_WIDTH = 400;
 
 export const ManageGroupsPage = () => {
   const [groups, setGroups] = useState<Group[]>([]);
   const [specializations, setSpecializations] = useState<Specialization[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [filterType, setFilterType] = useState<'all' | 'withSpecs' | 'withoutSpecs'>('all');
+  const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
 
   const [isGroupModalOpen, setIsGroupModalOpen] = useState(false);
   const [editingGroup, setEditingGroup] = useState<Group | null>(null);
@@ -45,7 +75,6 @@ export const ManageGroupsPage = () => {
   const [editingSpec, setEditingSpec] = useState<Partial<Specialization> | null>(null);
   const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
 
-  // ✅ POPRAWKA: Tworzymy jedną, centralną funkcję do pobierania danych
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -72,6 +101,49 @@ export const ManageGroupsPage = () => {
     }, {} as Record<string, Specialization[]>);
   }, [specializations]);
 
+  // Statystyki
+  const stats = useMemo(() => {
+    const totalGroups = groups.length;
+    const totalSpecs = specializations.length;
+    const groupsWithSpecs = groups.filter((g) => (specsByGroup[g.id]?.length || 0) > 0).length;
+    const groupsWithoutSpecs = totalGroups - groupsWithSpecs;
+    const allEmails = new Set<string>();
+    groups.forEach((g) => {
+      if (g.groupEmail) allEmails.add(g.groupEmail);
+    });
+    specializations.forEach((s) => {
+      s.emails?.forEach((e) => allEmails.add(e));
+    });
+
+    return {
+      totalGroups,
+      totalSpecs,
+      groupsWithSpecs,
+      groupsWithoutSpecs,
+      uniqueEmails: allEmails.size,
+    };
+  }, [groups, specializations, specsByGroup]);
+
+  // Filtrowanie
+  const filteredGroups = useMemo(() => {
+    let results = groups;
+
+    // Filtrowanie po nazwie
+    if (searchTerm) {
+      const lowerSearch = searchTerm.toLowerCase();
+      results = results.filter((g) => g.name.toLowerCase().includes(lowerSearch));
+    }
+
+    // Filtrowanie po typie
+    if (filterType === 'withSpecs') {
+      results = results.filter((g) => (specsByGroup[g.id]?.length || 0) > 0);
+    } else if (filterType === 'withoutSpecs') {
+      results = results.filter((g) => (specsByGroup[g.id]?.length || 0) === 0);
+    }
+
+    return results;
+  }, [groups, searchTerm, filterType, specsByGroup]);
+
   const handleOpenGroupModal = (group: Group | null = null) => {
     setEditingGroup(group);
     setIsGroupModalOpen(true);
@@ -84,7 +156,8 @@ export const ManageGroupsPage = () => {
       success: 'Grupa zapisana!',
       error: (err) => err.message || 'Błąd zapisu.',
     });
-    fetchData(); // ✅ Odświeżamy dane po operacji
+    fetchData();
+    setIsGroupModalOpen(false);
   };
 
   const handleDeleteGroup = async (group: Group) => {
@@ -94,7 +167,29 @@ export const ManageGroupsPage = () => {
         success: 'Grupa usunięta.',
         error: 'Błąd podczas usuwania.',
       });
-      fetchData(); // ✅ Odświeżamy dane po operacji
+      fetchData();
+      if (selectedGroup?.id === group.id) {
+        setIsDrawerOpen(false);
+        setSelectedGroup(null);
+      }
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedGroups.size === 0) return;
+    if (!window.confirm(`Czy na pewno chcesz usunąć ${selectedGroups.size} grup?`)) return;
+
+    const promises = Array.from(selectedGroups).map((id) => deleteGroup(id));
+    await toast.promise(Promise.all(promises), {
+      loading: 'Usuwanie grup...',
+      success: `Usunięto ${selectedGroups.size} grup.`,
+      error: 'Błąd podczas usuwania.',
+    });
+    setSelectedGroups(new Set());
+    fetchData();
+    if (selectedGroup && selectedGroups.has(selectedGroup.id)) {
+      setIsDrawerOpen(false);
+      setSelectedGroup(null);
     }
   };
 
@@ -124,6 +219,7 @@ export const ManageGroupsPage = () => {
       error: 'Błąd zapisu.',
     });
     fetchData();
+    setIsSpecModalOpen(false);
   };
 
   const handleDeleteSpecialization = async (spec: Specialization) => {
@@ -135,6 +231,34 @@ export const ManageGroupsPage = () => {
       });
       fetchData();
     }
+  };
+
+  const handleToggleSelect = (groupId: string) => {
+    const newSelected = new Set(selectedGroups);
+    if (newSelected.has(groupId)) {
+      newSelected.delete(groupId);
+    } else {
+      newSelected.add(groupId);
+    }
+    setSelectedGroups(newSelected);
+  };
+
+  const handleSelectAll = () => {
+    if (selectedGroups.size === filteredGroups.length) {
+      setSelectedGroups(new Set());
+    } else {
+      setSelectedGroups(new Set(filteredGroups.map((g) => g.id)));
+    }
+  };
+
+  const handleOpenDrawer = (group: Group) => {
+    setSelectedGroup(group);
+    setIsDrawerOpen(true);
+  };
+
+  const handleCloseDrawer = () => {
+    setIsDrawerOpen(false);
+    setSelectedGroup(null);
   };
 
   if (loading) return <CircularProgress />;
@@ -149,117 +273,449 @@ export const ManageGroupsPage = () => {
       >
         Wróć do pulpitu
       </Button>
-      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+
+      {/* Panel statystyk */}
+      <Paper sx={{ p: 2, mb: 3 }}>
         <Typography
-          variant="h4"
+          variant="h6"
           gutterBottom
         >
-          Zarządzaj Grupami i Specjalizacjami
+          Statystyki
         </Typography>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => handleOpenGroupModal()}
+        <Grid
+          container
+          spacing={2}
         >
-          Dodaj Nową Grupę
-        </Button>
-      </Box>
-
-      {groups.map((group) => (
-        <Accordion
-          key={group.id}
-          TransitionProps={{ unmountOnExit: true }}
-        >
-          <AccordionSummary
-            expandIcon={<ExpandMoreIcon />}
-            sx={{ '& .MuiAccordionSummary-content': { alignItems: 'center', justifyContent: 'space-between' } }}
-          >
-            <Box>
-              <Typography sx={{ fontWeight: 500 }}>{group.name}</Typography>
-              {group.groupEmail && (
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                >
-                  {group.groupEmail}
-                </Typography>
-              )}
-            </Box>
-            <Box>
-              {/* ✅ POPRAWKA: Używamy `onMouseDown` do zatrzymania propagacji zdarzenia */}
-              <IconButton
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleOpenGroupModal(group);
-                }}
-              >
-                <EditIcon />
-              </IconButton>
-              <IconButton
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleDeleteGroup(group);
-                }}
-              >
-                <DeleteIcon />
-              </IconButton>
-            </Box>
-          </AccordionSummary>
-          <AccordionDetails>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <Grid size={{ xs: 6, sm: 3 }}>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="h4">{stats.totalGroups}</Typography>
               <Typography
-                variant="h6"
-                gutterBottom
+                variant="caption"
+                color="text.secondary"
               >
-                Specjalizacje:
+                Grup
+              </Typography>
+            </Box>
+          </Grid>
+          <Grid size={{ xs: 6, sm: 3 }}>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="h4">{stats.totalSpecs}</Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+              >
+                Specjalizacji
+              </Typography>
+            </Box>
+          </Grid>
+          <Grid size={{ xs: 6, sm: 3 }}>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="h4">{stats.uniqueEmails}</Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+              >
+                Unikalnych Emaili
+              </Typography>
+            </Box>
+          </Grid>
+          <Grid size={{ xs: 6, sm: 3 }}>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="h4">{stats.groupsWithoutSpecs}</Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+              >
+                Grup bez Spec.
+              </Typography>
+            </Box>
+          </Grid>
+        </Grid>
+        {stats.groupsWithoutSpecs > 0 && (
+          <Alert
+            severity="warning"
+            sx={{ mt: 2 }}
+          >
+            {stats.groupsWithoutSpecs} {stats.groupsWithoutSpecs === 1 ? 'grupa nie ma' : 'grupy nie mają'}{' '}
+            przypisanych specjalizacji.
+          </Alert>
+        )}
+      </Paper>
+
+      {/* Pasek z wyszukiwarką i filtrami */}
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+          {filteredGroups.length > 0 && (
+            <Checkbox
+              checked={selectedGroups.size === filteredGroups.length && filteredGroups.length > 0}
+              indeterminate={selectedGroups.size > 0 && selectedGroups.size < filteredGroups.length}
+              onChange={handleSelectAll}
+            />
+          )}
+          <TextField
+            placeholder="Szukaj grup..."
+            variant="outlined"
+            size="small"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            sx={{ flexGrow: 1, minWidth: 200 }}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <SearchIcon />
+                </InputAdornment>
+              ),
+            }}
+          />
+          <FormControl
+            size="small"
+            sx={{ minWidth: 200 }}
+          >
+            <InputLabel>Filtruj</InputLabel>
+            <Select
+              value={filterType}
+              label="Filtruj"
+              onChange={(e) => setFilterType(e.target.value as typeof filterType)}
+            >
+              <MenuItem value="all">Wszystkie</MenuItem>
+              <MenuItem value="withSpecs">Ze specjalizacjami</MenuItem>
+              <MenuItem value="withoutSpecs">Bez specjalizacji</MenuItem>
+            </Select>
+          </FormControl>
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => handleOpenGroupModal()}
+          >
+            Dodaj Grupę
+          </Button>
+        </Box>
+
+        {/* Bulk actions toolbar */}
+        {selectedGroups.size > 0 && (
+          <Toolbar
+            sx={{
+              bgcolor: 'action.selected',
+              mt: 2,
+              borderRadius: 1,
+              justifyContent: 'space-between',
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              <Typography>
+                Zaznaczono: {selectedGroups.size} {selectedGroups.size === 1 ? 'grupa' : 'grup'}
               </Typography>
               <Button
                 size="small"
-                startIcon={<AddIcon />}
-                onClick={() => handleOpenSpecModal(group.id)}
+                onClick={handleSelectAll}
               >
-                Dodaj specjalizację
+                {selectedGroups.size === filteredGroups.length ? 'Odznacz wszystkie' : 'Zaznacz wszystkie'}
               </Button>
             </Box>
-            <List dense>
-              {(specsByGroup[group.id] || []).map((spec) => (
-                <ListItem
-                  key={spec.id}
-                  secondaryAction={
-                    <>
-                      <IconButton
-                        edge="end"
-                        onClick={() => handleOpenSpecModal(group.id, spec)}
-                      >
-                        <EditIcon />
-                      </IconButton>
-                      <IconButton
-                        edge="end"
-                        onClick={() => handleDeleteSpecialization(spec)}
-                      >
-                        <DeleteIcon />
-                      </IconButton>
-                    </>
-                  }
-                >
-                  <ListItemText
-                    primary={spec.name}
-                    secondary={spec.emails ? `E-maile: ${spec.emails.join(', ')}` : 'Brak e-maili'}
-                  />
-                </ListItem>
-              ))}
-              {(!specsByGroup[group.id] || specsByGroup[group.id].length === 0) && (
-                <ListItem>
-                  <ListItemText secondary="Brak zdefiniowanych specjalizacji dla tej grupy." />
-                </ListItem>
-              )}
-            </List>
-          </AccordionDetails>
-        </Accordion>
-      ))}
+            <Box>
+              <Button
+                size="small"
+                color="error"
+                startIcon={<DeleteIcon />}
+                onClick={handleBulkDelete}
+              >
+                Usuń zaznaczone
+              </Button>
+              <Button
+                size="small"
+                onClick={() => setSelectedGroups(new Set())}
+                sx={{ ml: 1 }}
+              >
+                Anuluj
+              </Button>
+            </Box>
+          </Toolbar>
+        )}
+      </Paper>
 
+      {/* Karty grup w siatce */}
+      <Grid
+        container
+        spacing={2}
+      >
+        {filteredGroups.map((group) => {
+          const groupSpecs = specsByGroup[group.id] || [];
+          const isSelected = selectedGroups.has(group.id);
+
+          return (
+            <Grid
+              size={{ xs: 12, sm: 6, md: 4 }}
+              key={group.id}
+            >
+              <Card
+                sx={{
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  cursor: 'pointer',
+                  border: isSelected ? 2 : 1,
+                  borderColor: isSelected ? 'primary.main' : 'divider',
+                  '&:hover': {
+                    boxShadow: 4,
+                  },
+                }}
+                onClick={() => handleOpenDrawer(group)}
+              >
+                <CardContent sx={{ flexGrow: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexGrow: 1 }}>
+                      <Checkbox
+                        checked={isSelected}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleToggleSelect(group.id);
+                        }}
+                        size="small"
+                      />
+                      <Typography
+                        variant="h6"
+                        component="div"
+                        sx={{ fontWeight: 600 }}
+                      >
+                        {group.name}
+                      </Typography>
+                    </Box>
+                    <IconButton
+                      size="small"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenGroupModal(group);
+                      }}
+                    >
+                      <EditIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+
+                  {group.groupEmail && (
+                    <Chip
+                      icon={<EmailIcon />}
+                      label={group.groupEmail}
+                      size="small"
+                      sx={{ mb: 1 }}
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  )}
+
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
+                    <Badge
+                      badgeContent={groupSpecs.length}
+                      color="primary"
+                    >
+                      <SchoolIcon color="action" />
+                    </Badge>
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                    >
+                      {groupSpecs.length} {groupSpecs.length === 1 ? 'specjalizacja' : 'specjalizacji'}
+                    </Typography>
+                  </Box>
+                </CardContent>
+                <CardActions sx={{ justifyContent: 'flex-end', pt: 0 }}>
+                  <IconButton
+                    size="small"
+                    color="error"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteGroup(group);
+                    }}
+                  >
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </CardActions>
+              </Card>
+            </Grid>
+          );
+        })}
+
+        {filteredGroups.length === 0 && (
+          <Grid size={12}>
+            <Paper sx={{ p: 4, textAlign: 'center' }}>
+              <Typography
+                variant="h6"
+                color="text.secondary"
+              >
+                {searchTerm || filterType !== 'all'
+                  ? 'Brak grup spełniających kryteria wyszukiwania'
+                  : 'Brak grup. Dodaj pierwszą grupę!'}
+              </Typography>
+            </Paper>
+          </Grid>
+        )}
+      </Grid>
+
+      {/* Drawer ze szczegółami */}
+      <Drawer
+        anchor="right"
+        open={isDrawerOpen}
+        onClose={handleCloseDrawer}
+        PaperProps={{
+          sx: { width: DRAWER_WIDTH },
+        }}
+      >
+        {selectedGroup && (
+          <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+            <Toolbar sx={{ justifyContent: 'space-between' }}>
+              <Typography variant="h6">Szczegóły Grupy</Typography>
+              <IconButton onClick={handleCloseDrawer}>
+                <CloseIcon />
+              </IconButton>
+            </Toolbar>
+            <Divider />
+
+            <Box sx={{ p: 2, flexGrow: 1, overflow: 'auto' }}>
+              <Stack spacing={2}>
+                <Box>
+                  <Typography
+                    variant="subtitle2"
+                    color="text.secondary"
+                  >
+                    Nazwa grupy
+                  </Typography>
+                  <Typography variant="h6">{selectedGroup.name}</Typography>
+                </Box>
+
+                {selectedGroup.groupEmail && (
+                  <Box>
+                    <Typography
+                      variant="subtitle2"
+                      color="text.secondary"
+                    >
+                      Email grupy
+                    </Typography>
+                    <Chip
+                      icon={<EmailIcon />}
+                      label={selectedGroup.groupEmail}
+                      sx={{ mt: 0.5 }}
+                    />
+                  </Box>
+                )}
+
+                <Divider />
+
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Typography variant="h6">Specjalizacje</Typography>
+                  <Button
+                    size="small"
+                    startIcon={<AddIcon />}
+                    onClick={() => {
+                      handleOpenSpecModal(selectedGroup.id);
+                    }}
+                  >
+                    Dodaj
+                  </Button>
+                </Box>
+
+                <List>
+                  {(specsByGroup[selectedGroup.id] || []).map((spec) => (
+                    <ListItem
+                      key={spec.id}
+                      sx={{
+                        border: 1,
+                        borderColor: 'divider',
+                        borderRadius: 1,
+                        mb: 1,
+                        bgcolor: 'background.paper',
+                      }}
+                    >
+                      <ListItemText
+                        primary={spec.name}
+                        secondary={
+                          <Box sx={{ mt: 1 }}>
+                            {spec.abbreviation && (
+                              <Chip
+                                label={spec.abbreviation}
+                                size="small"
+                                sx={{ mr: 0.5 }}
+                              />
+                            )}
+                            {spec.emails && spec.emails.length > 0 ? (
+                              spec.emails.map((email, idx) => (
+                                <Chip
+                                  key={idx}
+                                  icon={<EmailIcon />}
+                                  label={email}
+                                  size="small"
+                                  sx={{ mr: 0.5, mt: 0.5 }}
+                                />
+                              ))
+                            ) : (
+                              <Typography
+                                variant="caption"
+                                color="text.secondary"
+                              >
+                                Brak emaili
+                              </Typography>
+                            )}
+                          </Box>
+                        }
+                      />
+                      <ListItemSecondaryAction>
+                        <IconButton
+                          edge="end"
+                          size="small"
+                          onClick={() => handleOpenSpecModal(selectedGroup.id, spec)}
+                        >
+                          <EditIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton
+                          edge="end"
+                          size="small"
+                          color="error"
+                          onClick={() => handleDeleteSpecialization(spec)}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </ListItemSecondaryAction>
+                    </ListItem>
+                  ))}
+                  {(!specsByGroup[selectedGroup.id] || specsByGroup[selectedGroup.id].length === 0) && (
+                    <ListItem>
+                      <ListItemText
+                        secondary="Brak specjalizacji. Kliknij 'Dodaj' aby utworzyć pierwszą."
+                        sx={{ textAlign: 'center', py: 2 }}
+                      />
+                    </ListItem>
+                  )}
+                </List>
+              </Stack>
+            </Box>
+
+            <Divider />
+            <Toolbar>
+              <Button
+                variant="outlined"
+                startIcon={<EditIcon />}
+                onClick={() => {
+                  handleOpenGroupModal(selectedGroup);
+                  handleCloseDrawer();
+                }}
+                sx={{ mr: 1 }}
+              >
+                Edytuj grupę
+              </Button>
+              <Button
+                variant="outlined"
+                color="error"
+                startIcon={<DeleteIcon />}
+                onClick={() => {
+                  handleDeleteGroup(selectedGroup);
+                  handleCloseDrawer();
+                }}
+              >
+                Usuń grupę
+              </Button>
+            </Toolbar>
+          </Box>
+        )}
+      </Drawer>
+
+      {/* Modale */}
       {isGroupModalOpen && (
         <GroupFormModal
           open={isGroupModalOpen}

@@ -2,7 +2,8 @@ import React, { useMemo } from 'react';
 import { useDraggable } from '@dnd-kit/core';
 import { Paper, Typography, Box, IconButton, Chip, Tooltip } from '@mui/material';
 import EditIcon from '@mui/icons-material/Edit';
-import EventAvailableIcon from '@mui/icons-material/EventAvailable'; // Import ikony kalendarza
+import EventAvailableIcon from '@mui/icons-material/EventAvailable';
+import VideocamIcon from '@mui/icons-material/Videocam';
 import type { ScheduleEntry, Specialization } from '../../features/timetable/types';
 
 interface DraggableScheduleEntryProps {
@@ -62,6 +63,8 @@ export const DraggableScheduleEntry: React.FC<DraggableScheduleEntryProps> = ({
     );
   }, [entry.specificDates]);
 
+  const isOnline = entry.format === 'online';
+
   return (
     <Paper
       ref={setNodeRef}
@@ -74,27 +77,56 @@ export const DraggableScheduleEntry: React.FC<DraggableScheduleEntryProps> = ({
         p: 1,
         my: 0.5,
         textAlign: 'left',
-        backgroundColor: 'primary.light',
-        color: 'primary.contrastText',
+        backgroundColor: isOnline ? 'info.light' : 'primary.light',
+        color: isOnline ? 'info.contrastText' : 'primary.contrastText',
+        border: isOnline ? '2px solid' : 'none',
+        borderColor: isOnline ? 'info.main' : 'transparent',
         cursor: isReadOnly ? 'not-allowed' : 'grab',
-        '&:hover': { backgroundColor: 'primary.dark', '& .edit-icon, & .date-icon': { opacity: 1 } },
+        '&:hover': {
+          backgroundColor: isOnline ? 'info.dark' : 'primary.dark',
+          '& .edit-icon, & .date-icon': { opacity: 1 },
+        },
       }}
     >
-      <Box>
-        <Typography
-          variant="body2"
-          fontWeight="bold"
-        >
-          {entry.subjectName}
-        </Typography>
-        <Typography variant="caption">{entry.lecturerName}</Typography>
-        <br />
-        <Typography
-          variant="caption"
-          color="inherit"
-        >
-          Sala: {entry.roomName}
-        </Typography>
+      <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 0.5 }}>
+        <Box sx={{ flex: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
+            <Typography
+              variant="body2"
+              fontWeight="bold"
+            >
+              {entry.subjectName}
+            </Typography>
+            {isOnline && (
+              <Tooltip title="Zajęcia online">
+                <VideocamIcon
+                  sx={{
+                    fontSize: '0.875rem',
+                    opacity: 0.9,
+                  }}
+                />
+              </Tooltip>
+            )}
+          </Box>
+          <Typography variant="caption">{entry.lecturerName}</Typography>
+          <br />
+          {isOnline ? (
+            <Typography
+              variant="caption"
+              color="inherit"
+              sx={{ fontStyle: 'italic' }}
+            >
+              Online
+            </Typography>
+          ) : (
+            <Typography
+              variant="caption"
+              color="inherit"
+            >
+              Sala: {entry.roomName || 'Nie przypisano'}
+            </Typography>
+          )}
+        </Box>
       </Box>
 
       {assignedSpecializations.length > 0 && (

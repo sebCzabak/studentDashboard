@@ -130,18 +130,23 @@ export const exportToGoogleCalendar = async (
             const description = `Prowadzący: ${entry.lecturerName}\nGrupy: ${entry.groupNames.join(', ')}`;
             const dateStr = date.toISOString().split('T')[0];
 
+            // Oblicz czas zakończenia - dla online na zjazdach: 1.1h, dla pozostałych: 1.5h
+            const endTimeForExport = calculateEndTimeForExport(entry.startTime, semesterDate.format, true);
+
             const event: Partial<GoogleCalendarEvent> = {
               summary: entry.subjectName,
               location: entry.roomName,
               description,
               attendees,
               start: { dateTime: `${dateStr}T${entry.startTime}:00`, timeZone: 'Europe/Warsaw' },
-              end: { dateTime: `${dateStr}T${entry.endTime}:00`, timeZone: 'Europe/Warsaw' },
+              end: { dateTime: `${dateStr}T${endTimeForExport}:00`, timeZone: 'Europe/Warsaw' },
             };
 
             if (semesterDate.format === 'online') {
-              console.log('   --> Dodaję link do Google Meet.');
-              event.conferenceData = { createRequest: { requestId: `${entry.id}-${dateStr}` } };
+              console.log('   --> Dodaję link do Google Meet (czas trwania: 1h 10min).');
+              // Dla każdego zjazdu tworzymy osobne spotkanie (osobny requestId)
+              // Każde spotkanie będzie miało swój unikalny link
+              event.conferenceData = { createRequest: { requestId: `${entry.id}-${sessionId}-${Date.now()}` } };
             }
             eventsToCreate.push(event as GoogleCalendarEvent);
           }
@@ -156,6 +161,9 @@ export const exportToGoogleCalendar = async (
           description += `\n\nUwaga: Zajęcia łączone.`;
         }
 
+        // Dla trybu cyklicznego zawsze używamy 1.5h (nie ma zjazdów online z krótszym czasem)
+        const endTimeForExport = calculateEndTimeForExport(entry.startTime, entry.format, false);
+
         const baseEvent: Partial<GoogleCalendarEvent> = {
           summary: entry.subjectName,
           location: entry.roomName,
@@ -164,8 +172,9 @@ export const exportToGoogleCalendar = async (
         };
 
         if (entry.format === 'online') {
+          // Dla trybu cyklicznego: wszystkie instancje dzielą ten sam link do spotkania
           baseEvent.conferenceData = {
-            createRequest: { requestId: `${entry.id}-${Date.now()}` },
+            createRequest: { requestId: `recurring-${entry.id}` },
           };
         }
 
@@ -187,7 +196,7 @@ export const exportToGoogleCalendar = async (
         const recurringEvent: GoogleCalendarEvent = {
           ...(baseEvent as GoogleCalendarEvent),
           start: { dateTime: `${firstDate}T${entry.startTime}:00`, timeZone: 'Europe/Warsaw' },
-          end: { dateTime: `${firstDate}T${entry.endTime}:00`, timeZone: 'Europe/Warsaw' },
+          end: { dateTime: `${firstDate}T${endTimeForExport}:00`, timeZone: 'Europe/Warsaw' },
           recurrence: [`RRULE:FREQ=WEEKLY;INTERVAL=${interval};BYDAY=${dayMap[entry.day]};UNTIL=${untilString}`],
         };
         eventsToCreate.push(recurringEvent);
@@ -220,6 +229,28 @@ export const exportToGoogleCalendar = async (
 
 // --- Funkcje pomocnicze ---
 
+/**
+ * Oblicza czas zakończenia zajęć dla eksportu do Google Calendar
+ * Dla zajęć online na zjazdach: 1h 10min (70 minut)
+ * Dla pozostałych (stacjonarne i online cykliczne): 1h 30min (90 minut)
+ */
+const calculateEndTimeForExport = (
+  startTime: string,
+  format: 'stacjonarny' | 'online' | undefined,
+  isSessionBased: boolean
+): string => {
+  const [hours, minutes] = startTime.split(':').map(Number);
+  const date = new Date();
+  date.setHours(hours, minutes, 0, 0);
+
+  // Dla zajęć online na zjazdach: 1h 10min (70 minut)
+  // Dla pozostałych (stacjonarne i online cykliczne): 1h 30min (90 minut)
+  const durationInMinutes = format === 'online' && isSessionBased ? 70 : 90;
+
+  date.setMinutes(date.getMinutes() + durationInMinutes);
+  return date.toTimeString().slice(0, 5);
+};
+
 const createGoogleEvent = (accessToken: string, calendarId: string, event: GoogleCalendarEvent) => {
   return fetch(`${GOOGLE_API_BASE_URL}/calendars/${calendarId}/events?conferenceDataVersion=1`, {
     method: 'POST',
@@ -243,23 +274,49 @@ const buildAttendees = (
   allLecturers: UserProfile[],
   allGroups: Group[],
   allSpecializations: Specialization[]
-): { email: string }[] => {
-  const attendees = new Set<string>();
+): Array<{
+  email: string;
+  optional?: boolean;
+  responseStatus?: 'accepted' | 'declined' | 'needsAction' | 'tentative';
+}> => {
+  const attendeesMap = new Map<string, { email: string; optional: boolean; responseStatus?: 'accepted' }>();
+  
+  // Prowadzący - zawsze obowiązkowy uczestnik, zaakceptowany (może rozpoczynać spotkania)
   const lecturer = allLecturers.find((l) => l.id === entry.lecturerId);
-  if (lecturer?.email) attendees.add(lecturer.email);
+  if (lecturer?.email) {
+    attendeesMap.set(lecturer.email, {
+      email: lecturer.email,
+      optional: false,
+      responseStatus: 'accepted', // Zaakceptowany - może rozpoczynać spotkania
+    });
+  }
 
+  // Grupy/Specjalizacje - obowiązkowi uczestnicy
   if (entry.specializationIds && entry.specializationIds.length > 0) {
     entry.specializationIds.forEach((specId) => {
       const specialization = allSpecializations.find((s) => s.id === specId);
-      specialization?.emails?.forEach((email) => attendees.add(email));
+      specialization?.emails?.forEach((email) => {
+        if (!attendeesMap.has(email)) {
+          attendeesMap.set(email, {
+            email,
+            optional: false,
+          });
+        }
+      });
     });
   } else {
     entry.groupIds.forEach((groupId) => {
       const group = allGroups.find((g) => g.id === groupId);
-      if (group?.groupEmail) attendees.add(group.groupEmail);
+      if (group?.groupEmail && !attendeesMap.has(group.groupEmail)) {
+        attendeesMap.set(group.groupEmail, {
+          email: group.groupEmail,
+          optional: false,
+        });
+      }
     });
   }
-  return Array.from(attendees).map((email) => ({ email }));
+
+  return Array.from(attendeesMap.values());
 };
 
 function getNextDateForDay(startDate: Date, dayOfWeek: DayOfWeek): string {

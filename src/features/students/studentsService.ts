@@ -28,3 +28,16 @@ export const assignStudentToSpecialization = (
     specializationName: specializationName, // Zapisujemy też nazwę dla wygody
   });
 };
+export const updateStudentAssignment = (
+  studentId: string,
+  assignmentData: {
+    groupId: string;
+    groupName: string;
+    specializationId: string;
+    specializationName: string;
+  }
+): Promise<void> => {
+  if (!studentId) throw new Error('Brak ID studenta.');
+  const studentDocRef = doc(db, 'users', studentId);
+  return updateDoc(studentDocRef, assignmentData);
+};

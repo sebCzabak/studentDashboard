@@ -15,6 +15,8 @@ import {
   Tooltip,
   Chip,
   TextField,
+  Tabs,
+  Tab,
 } from '@mui/material';
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import EditIcon from '@mui/icons-material/Edit';
@@ -33,6 +35,16 @@ export const ManageUsersPage = () => {
   const [selectedUser, setSelectedUser] = useState<UserProfile | null>(null);
   const [isAvailabilityModalOpen, setIsAvailabilityModalOpen] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedRole, setSelectedRole] = useState<string>('all');
+
+  const roles = [
+    { value: 'all', label: 'Wszystkie' },
+    { value: 'admin', label: 'Admin' },
+    { value: 'prowadzacy', label: 'Prowadzący' },
+    { value: 'pracownik_dziekanatu', label: 'Pracownik Dziekanatu' },
+    { value: 'pracownik_kwestury', label: 'Pracownik Kwestury' },
+    { value: 'student', label: 'Student' },
+  ];
 
   useEffect(() => {
     getAllUsers()
@@ -48,15 +60,24 @@ export const ManageUsersPage = () => {
   }, []);
 
   const filteredUsers = useMemo(() => {
-    if (!searchTerm) {
-      return users;
+    let results = users;
+
+    // Filtrowanie po roli
+    if (selectedRole !== 'all') {
+      results = results.filter((user) => user.role === selectedRole);
     }
-    const lowercasedFilter = searchTerm.toLowerCase();
-    return users.filter(
-      (user) =>
-        user.displayName.toLowerCase().includes(lowercasedFilter) || user.email.toLowerCase().includes(lowercasedFilter)
-    );
-  }, [users, searchTerm]);
+
+    // Filtrowanie po nazwie lub emailu
+    if (searchTerm) {
+      const lowercasedFilter = searchTerm.toLowerCase();
+      results = results.filter(
+        (user) =>
+          user.displayName.toLowerCase().includes(lowercasedFilter) || user.email.toLowerCase().includes(lowercasedFilter)
+      );
+    }
+
+    return results;
+  }, [users, searchTerm, selectedRole]);
 
   const handleOpenAvailabilityModal = (user: UserProfile) => {
     setSelectedUser(user);
@@ -97,10 +118,28 @@ export const ManageUsersPage = () => {
           variant="outlined"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
+          sx={{ mb: 2 }}
           InputProps={{
             startAdornment: <SearchIcon sx={{ color: 'action.active', mr: 1 }} />,
           }}
         />
+
+        <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
+          <Tabs
+            value={selectedRole}
+            onChange={(_, newValue) => setSelectedRole(newValue)}
+            variant="scrollable"
+            scrollButtons="auto"
+          >
+            {roles.map((role) => (
+              <Tab
+                key={role.value}
+                label={role.label}
+                value={role.value}
+              />
+            ))}
+          </Tabs>
+        </Box>
       </Paper>
 
       <TableContainer component={Paper}>

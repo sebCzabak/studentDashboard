@@ -1,7 +1,8 @@
-import { db } from '../../config/firebase';
+import { db, storage } from '../../config/firebase';
 import { collection, getDocs, query, where, doc, updateDoc, getDoc, setDoc, orderBy } from 'firebase/firestore';
 import { updateProfile, type User } from 'firebase/auth';
 import { type UserProfile } from './types';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 /**
  * Aktualizuje profil użytkownika w Firebase Auth i Firestore.
@@ -126,4 +127,26 @@ export const getAllUsers = async (): Promise<UserProfile[]> => {
   const querySnapshot = await getDocs(q);
   // Już nie musimy sortować w komponencie Reacta
   return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as UserProfile[];
+};
+export const updateStudentProfile = (studentId: string, data: Partial<UserProfile>): Promise<void> => {
+  if (!studentId) throw new Error('Brak ID studenta.');
+  const studentDocRef = doc(db, 'users', studentId);
+  return updateDoc(studentDocRef, data);
+};
+export const uploadStudentPhoto = async (studentId: string, file: File): Promise<string> => {
+  if (!studentId) throw new Error('Brak ID studenta do przypisania zdjęcia.');
+  if (!file) throw new Error('Brak pliku do przesłania.');
+
+  // Tworzymy unikalną ścieżkę, np. 'student_avatars/uid-studenta/profile.jpg'
+  // Użycie stałej nazwy pliku (np. 'profile') gwarantuje, że student ma tylko 1 awatar
+  const filePath = `student_avatars/${studentId}/profile.jpg`;
+  const storageRef = ref(storage, filePath);
+
+  // Przesyłamy plik
+  const uploadResult = await uploadBytes(storageRef, file);
+
+  // Pobieramy URL do pobrania pliku
+  const downloadURL = await getDownloadURL(uploadResult.ref);
+
+  return downloadURL;
 };

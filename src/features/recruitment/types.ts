@@ -1,20 +1,47 @@
-// Plik: src/features/recruitment/types.ts
+// src/features/recruitment/types.ts
 import { Timestamp } from 'firebase/firestore';
+
+// Definicja statusów weryfikacji (zgodna z zrzutem ekranu)
+export type ApplicationStatusValue =
+  | 'Nie wybrano'
+  | 'Oczekuje'
+  | 'W trakcie realizacji'
+  | 'Zapłacono'
+  | 'Zwrot'
+  | 'Zaakceptowano'
+  | 'Odrzucono';
+
+// Struktura danych statusów weryfikacji
+export interface ApplicationVerificationStatus {
+  // Statusy finansowe / dokumentacyjne (zgodne z UI)
+  enrollmentFee: ApplicationStatusValue; // Opłata wpisowa
+  tuitionFee: ApplicationStatusValue; // Opłata czesnego
+  entryExamFirst: ApplicationStatusValue; // Egzamin wstępny (Pierwsze podejście)
+  entryExamSecond: ApplicationStatusValue; // Egzamin wstępny (Drugie podejście)
+  interview: ApplicationStatusValue; // Rozmowa wstępna
+  visaDocuments: ApplicationStatusValue; // Dokumenty do przyjęcia / wizowe
+  generalStatus: ApplicationStatusValue; // Ogólny status zgłoszenia
+
+  // Pola informacyjne
+  informationNAWA: ApplicationStatusValue; // Informacja NAWA
+  additionalComments: string; // Dodatkowe uwagi
+}
 
 export interface Application {
   id: string;
-  // Dane podstawowe
+  // DANE PODSTAWOWE (Zgodne z Twoimi istniejącymi danymi)
   firstName: string;
   lastName: string;
   email: string;
+
+  // DANE OSOBOWE I KONTAKTOWE (Rozszerzenie o UI)
+  dateOfBirth?: Timestamp;
   phoneNumber?: string;
-  dateOfBirth?: Timestamp; // Data urodzenia
+  country?: string;
+  citizenship?: string;
+  gender?: 'Kobieta' | 'Mężczyzna' | 'Inne';
 
-  photoUrl?: string;
-  previousEducation?: string;
-  hasPaidEnrollmentFee: boolean;
-
-  // Adres
+  // DANE ADRESOWE
   address?: {
     street: string;
     city: string;
@@ -22,17 +49,20 @@ export interface Application {
     country: string;
   };
 
-  // Dane o edukacji
-  education?: {
+  // DANE O EDUKACJI
+  previousEducation?: {
     schoolName: string;
     graduationYear: number;
     degree: string;
   };
 
-  // Dane systemowe
-  status: 'Nowe zgłoszenie' | 'wymaga uzupełnienia' | 'zaakceptowany' | 'odrzucony';
+  // DANE SYSTEMOWE I STATUS APLIKACJI (Zgodne z Twoimi logami)
+  status: 'Nowe zgłoszenie' | 'wymaga uzupełnienia' | 'zaakceptowany' | 'odrzucony'; // Status ogólny
   submissionDate: Timestamp;
   processorId?: string;
   processorName?: string;
   notes?: string;
+
+  // ✅ NOWE POLE: Statusy weryfikacyjne dla panelu
+  verification: ApplicationVerificationStatus;
 }

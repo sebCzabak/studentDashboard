@@ -16,20 +16,10 @@ import {
   TableRow,
   TableCell,
   TableBody,
-  LinearProgress,
-  Chip,
-  List,
-  ListItem,
-  ListItemText,
-  Collapse,
-  Badge,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import ArrowLeftIcon from '@mui/icons-material/ArrowLeft';
 import ArrowRightIcon from '@mui/icons-material/ArrowRight';
-import WarningIcon from '@mui/icons-material/Warning';
-import ExpandLessIcon from '@mui/icons-material/ExpandLess';
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import toast from 'react-hot-toast';
 import { useTimetableData } from './hooks/useTimetableData';
 import { getEntriesForLecturer } from '../../features/timetable/scheduleService';
@@ -99,95 +89,9 @@ export const NewTimetableEditorPage = () => {
   const [conflictingEntries, setConflictingEntries] = useState<ScheduleEntry[]>([]);
   const [modalData, setModalData] = useState<(Partial<ScheduleEntry> & { subject?: CurriculumSubject }) | null>(null);
   const [currentSessionIndex, setCurrentSessionIndex] = useState(0);
-  const [conflictsPanelOpen, setConflictsPanelOpen] = useState(false);
 
   const isPublished = timetable?.status === 'published';
   const studyMode = timetable?.studyMode || 'stacjonarne';
-
-  // Statystyki i postęp
-  const stats = useMemo(() => {
-    const totalSubjects = curriculumSubjects.length;
-    const scheduledSubjectIds = new Set(scheduleEntries.map((e) => e.subjectId).filter(Boolean));
-    const scheduledSubjects = scheduledSubjectIds.size;
-    const totalEntries = scheduleEntries.length;
-    const progressPercentage = totalSubjects > 0 ? Math.min((scheduledSubjects / totalSubjects) * 100, 100) : 0;
-
-    return {
-      totalSubjects,
-      scheduledSubjects,
-      totalEntries,
-      progressPercentage,
-    };
-  }, [curriculumSubjects, scheduleEntries]);
-
-  // Wykrywanie konfliktów w planie
-  const detectedConflicts = useMemo(() => {
-    const conflicts: Array<{
-      entry1: ScheduleEntry;
-      entry2: ScheduleEntry;
-      type: 'lecturer' | 'room' | 'group';
-      message: string;
-    }> = [];
-
-    for (let i = 0; i < scheduleEntries.length; i++) {
-      const entry1 = scheduleEntries[i];
-      if (!entry1.day || !entry1.startTime) continue;
-
-      for (let j = i + 1; j < scheduleEntries.length; j++) {
-        const entry2 = scheduleEntries[j];
-        if (!entry2.day || !entry2.startTime) continue;
-
-        // Sprawdź czy zajęcia są w tym samym czasie
-        const sameTime = entry1.day === entry2.day && entry1.startTime === entry2.startTime;
-        if (!sameTime) continue;
-
-        // Sprawdź format zajęć (stacjonarny/online)
-        const format1 = entry1.format || 'stacjonarny';
-        const format2 = entry2.format || 'stacjonarny';
-        const sameFormat = format1 === format2;
-
-        // Konflikt prowadzącego - zawsze jest konfliktem, nawet jeśli jedno jest online
-        // (prowadzący nie może prowadzić dwóch zajęć jednocześnie)
-        if (entry1.lecturerId === entry2.lecturerId) {
-          conflicts.push({
-            entry1,
-            entry2,
-            type: 'lecturer',
-            message: `Prowadzący ${entry1.lecturerName} ma konflikt czasowy`,
-          });
-        }
-        // Konflikt sali - tylko jeśli oba są stacjonarne i mają tę samą salę
-        // (sala nie może być zajęta przez zajęcia online, bo online nie używa sali)
-        else if (entry1.roomId && entry2.roomId && entry1.roomId === entry2.roomId && sameFormat && format1 === 'stacjonarny') {
-          conflicts.push({
-            entry1,
-            entry2,
-            type: 'room',
-            message: `Sala ${entry1.roomName} jest zajęta w tym czasie`,
-          });
-        }
-        // Konflikt grup - tylko jeśli oba są w tym samym formacie
-        // (grupa MOŻE mieć zajęcia stacjonarne i online jednocześnie - to nie jest konflikt)
-        // Konflikt jest tylko gdy ta sama grupa ma dwa zajęcia w tym samym formacie w tym samym czasie
-        else if (sameFormat) {
-          const commonGroups = (entry1.groupIds || []).filter((g) => (entry2.groupIds || []).includes(g));
-          if (commonGroups.length > 0) {
-            const groupNames = commonGroups
-              .map((gId) => entry1.groupNames?.find((_, idx) => entry1.groupIds?.[idx] === gId) || '')
-              .filter(Boolean);
-            conflicts.push({
-              entry1,
-              entry2,
-              type: 'group',
-              message: `Grupa ${groupNames.join(', ')} ma konflikt czasowy (${format1})`,
-            });
-          }
-        }
-      }
-    }
-
-    return conflicts;
-  }, [scheduleEntries]);
 
   const groupedSessions = useMemo(() => {
     const sortedDates = semesterDates.sort((a, b) => a.date.toMillis() - b.date.toMillis());
@@ -262,23 +166,15 @@ export const NewTimetableEditorPage = () => {
         setModalData(newEntryData);
       }
     } else {
-      // Tryb cykliczny (stacjonarne) - zawsze ustawiamy format na 'stacjonarny' domyślnie
-      // Użytkownik może później zmienić format w modalu na 'online' jeśli potrzeba
       const [day, time] = over.id.toString().split('-') as [DayOfWeek, string];
       if (active.data.current?.type === 'new-subject') {
         const subject = active.data.current?.subject as CurriculumSubject;
         setModalData({
-          subjectId: subject.subjectId,
           subjectName: subject.subjectName,
           day,
-          lecturerId: subject.lecturerId,
           lecturerName: subject.lecturerName,
-          type: subject.type,
           startTime: time,
-          endTime: getEndTime(time),
           timetableId: timetableId!,
-          curriculumSubjectId: subject.id,
-          format: 'stacjonarny', // Domyślnie stacjonarny - można zmienić w modalu
         });
       } else if (active.data.current?.type === 'existing-entry') {
         const entryToMove = active.data.current?.entry as ScheduleEntry;
@@ -359,162 +255,6 @@ export const NewTimetableEditorPage = () => {
             Edycja jest zablokowana.
           </Alert>
         )}
-
-        {/* Panel konfliktów */}
-        {detectedConflicts.length > 0 && (
-          <Paper sx={{ mb: 2, border: '1px solid', borderColor: 'error.main' }}>
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                p: 1.5,
-                cursor: 'pointer',
-                '&:hover': { backgroundColor: 'action.hover' },
-              }}
-              onClick={() => setConflictsPanelOpen(!conflictsPanelOpen)}
-            >
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Badge
-                  badgeContent={detectedConflicts.length}
-                  color="error"
-                >
-                  <WarningIcon color="error" />
-                </Badge>
-                <Typography
-                  variant="h6"
-                  color="error"
-                >
-                  Wykryto {detectedConflicts.length} {detectedConflicts.length === 1 ? 'konflikt' : 'konfliktów'}
-                </Typography>
-              </Box>
-              {conflictsPanelOpen ? <ExpandLessIcon /> : <ExpandMoreIcon />}
-            </Box>
-            <Collapse in={conflictsPanelOpen}>
-              <List dense>
-                {detectedConflicts.map((conflict, idx) => (
-                  <ListItem
-                    key={`${conflict.entry1.id}-${conflict.entry2.id}-${idx}`}
-                    sx={{
-                      borderBottom: '1px solid',
-                      borderColor: 'divider',
-                      '&:hover': { backgroundColor: 'action.hover', cursor: 'pointer' },
-                    }}
-                    onClick={() => handleOpenEditModal(conflict.entry1)}
-                  >
-                    <ListItemText
-                      primary={
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
-                          <Chip
-                            label={conflict.type === 'lecturer' ? 'Prowadzący' : conflict.type === 'room' ? 'Sala' : 'Grupa'}
-                            size="small"
-                            color="error"
-                            variant="outlined"
-                          />
-                          <Typography variant="body2">
-                            {conflict.message}
-                          </Typography>
-                        </Box>
-                      }
-                      secondary={
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{ mt: 0.5, display: 'block' }}
-                        >
-                          {conflict.entry1.subjectName} ({conflict.entry1.day}, {conflict.entry1.startTime}) vs{' '}
-                          {conflict.entry2.subjectName} ({conflict.entry2.day}, {conflict.entry2.startTime})
-                        </Typography>
-                      }
-                    />
-                  </ListItem>
-                ))}
-              </List>
-            </Collapse>
-          </Paper>
-        )}
-
-        {/* Panel statystyk i postępu */}
-        <Paper sx={{ p: 2, mb: 2 }}>
-          <Grid
-            container
-            spacing={2}
-            alignItems="center"
-          >
-            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h4">{stats.totalEntries}</Typography>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                >
-                  Zajęć zaplanowanych
-                </Typography>
-              </Box>
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h4">{stats.scheduledSubjects}</Typography>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                >
-                  Przedmiotów zaplanowanych
-                </Typography>
-              </Box>
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-              <Box sx={{ textAlign: 'center' }}>
-                <Typography variant="h4">{stats.totalSubjects}</Typography>
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                >
-                  Wszystkich przedmiotów
-                </Typography>
-              </Box>
-            </Grid>
-            <Grid size={{ xs: 12, sm: 6, md: 3 }}>
-              <Box>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                  >
-                    Postęp:
-                  </Typography>
-                  <Typography
-                    variant="body2"
-                    color="text.secondary"
-                    sx={{ fontWeight: 'bold' }}
-                  >
-                    {stats.scheduledSubjects} / {stats.totalSubjects}
-                  </Typography>
-                </Box>
-                <LinearProgress
-                  variant="determinate"
-                  value={stats.progressPercentage}
-                  sx={{
-                    height: 8,
-                    borderRadius: 4,
-                    backgroundColor: 'grey.200',
-                    '& .MuiLinearProgress-bar': {
-                      borderRadius: 4,
-                    },
-                  }}
-                  color={stats.progressPercentage === 100 ? 'success' : stats.progressPercentage >= 50 ? 'primary' : 'warning'}
-                />
-                <Typography
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{ mt: 0.5, display: 'block', textAlign: 'center' }}
-                >
-                  {Math.round(stats.progressPercentage)}% ukończono
-                </Typography>
-              </Box>
-            </Grid>
-          </Grid>
-        </Paper>
 
         {isSessionBasedMode ? (
           <>

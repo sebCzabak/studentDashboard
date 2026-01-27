@@ -12,12 +12,13 @@ interface UnscheduledClassesPanelProps {
 const HOURS_PER_BLOCK = 1.5;
 
 export const UnscheduledClassesPanel: React.FC<UnscheduledClassesPanelProps> = ({ subjects, entries, isReadOnly }) => {
-  const usedHoursMap = useMemo(() => {
+  // Liczymy ile razy każdy przedmiot został użyty (liczba bloków)
+  const usageCountMap = useMemo(() => {
     const map = new Map<string, number>();
     entries.forEach((entry) => {
       if (entry.curriculumSubjectId) {
-        const currentHours = map.get(entry.curriculumSubjectId) || 0;
-        map.set(entry.curriculumSubjectId, currentHours + HOURS_PER_BLOCK);
+        const currentCount = map.get(entry.curriculumSubjectId) || 0;
+        map.set(entry.curriculumSubjectId, currentCount + 1);
       }
     });
     return map;
@@ -37,15 +38,18 @@ export const UnscheduledClassesPanel: React.FC<UnscheduledClassesPanelProps> = (
       <Divider sx={{ mb: 2 }} />
       <Box>
         {subjects.map((subject) => {
-          const usedHours = usedHoursMap.get(subject.id) || 0;
-          const isFullyScheduled = usedHours >= subject.hours;
+          const usageCount = usageCountMap.get(subject.id) || 0;
+          const isUsed = usageCount > 0;
+          const isDoubleBlock = usageCount >= 2; // Podwójny lub więcej bloków
 
           return (
             <DraggableClass
               key={subject.id}
               subject={subject}
-              isUsed={isFullyScheduled}
+              isUsed={isUsed}
               isReadOnly={isReadOnly}
+              usageCount={usageCount}
+              isDoubleBlock={isDoubleBlock}
             />
           );
         })}

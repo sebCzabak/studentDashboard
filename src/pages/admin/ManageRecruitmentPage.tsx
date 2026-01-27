@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react'; // NOWY IMPORT: useMemo
 import {
   Box,
   Paper,
@@ -33,6 +33,17 @@ import { pl } from 'date-fns/locale';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import DownloadIcon from '@mui/icons-material/Download';
 import Papa from 'papaparse'; // Import biblioteki do CSV
+
+// Definicja typu dla aplikacji (lepsze niż any)
+interface Application {
+  id: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  submissionDate?: { toDate: () => Date }; // Typ Firestore Timestamp
+  status: string;
+  processorName?: string;
+}
 
 // Funkcja pomocnicza do renderowania kolorowego statusu
 const getStatusChip = (status: string) => {
@@ -81,39 +92,93 @@ const ApplicationsTabPanel = ({
   fetchFunction: (status: string) => Promise<any[]>;
   collectionName: string;
 }) => {
-  const [applications, setApplications] = useState<any[]>([]);
+  // Stan na wszystkie aplikacje (filtrowane tylko statusem z API)
+  const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('Nowe zgłoszenie');
+  const [selectedYear, setSelectedYear] = useState<string>('all'); // NOWY STAN DLA FILTRA ROKU
 
   useEffect(() => {
     setLoading(true);
+    // Ten useEffect pobiera dane tylko na podstawie statusu
     fetchFunction(statusFilter)
-      .then((data) => setApplications(data))
+      .then((data) => setApplications(data as Application[]))
       .catch(() => toast.error('Nie udało się wczytać wniosków dla tej zakładki.'))
       .finally(() => setLoading(false));
   }, [fetchFunction, statusFilter]);
+
+  // NOWA LOGIKA: Wyodrębnij dostępne lata z pobranych wniosków
+  const availableYears = useMemo(() => {
+    const yearsSet = new Set<string>();
+    applications.forEach((app) => {
+      if (app.submissionDate && app.submissionDate.toDate) {
+        yearsSet.add(app.submissionDate.toDate().getFullYear().toString());
+      }
+    });
+    return Array.from(yearsSet).sort((a, b) => b.localeCompare(a)); // Sortuj malejąco
+  }, [applications]);
+
+  // NOWA LOGIKA: Filtruj wnioski na podstawie wybranego roku
+  const filteredApplications = useMemo(() => {
+    if (selectedYear === 'all') {
+      return applications; // Zwróć wszystko, co pobrało API
+    }
+    return applications.filter((app) => {
+      if (app.submissionDate && app.submissionDate.toDate) {
+        return app.submissionDate.toDate().getFullYear().toString() === selectedYear;
+      }
+      return false;
+    });
+  }, [applications, selectedYear]);
 
   if (loading) return <CircularProgress sx={{ mt: 3 }} />;
 
   return (
     <Box>
-      <FormControl
-        size="small"
-        sx={{ mt: 2, minWidth: 240 }}
-      >
-        <InputLabel>Filtruj po statusie</InputLabel>
-        <Select
-          value={statusFilter}
-          label="Filtruj po statusie"
-          onChange={(e: SelectChangeEvent) => setStatusFilter(e.target.value)}
+      {/* NOWY KONTENER NA FILTRY */}
+      <Box sx={{ display: 'flex', gap: 2, mt: 2, mb: 2 }}>
+        <FormControl
+          size="small"
+          sx={{ minWidth: 240 }}
         >
-          <MenuItem value="Nowe zgłoszenie">Nowe zgłoszenia</MenuItem>
-          <MenuItem value="zaakceptowany">Zaakceptowane</MenuItem>
-          <MenuItem value="odrzucony">Odrzucone</MenuItem>
-          <MenuItem value="wymaga uzupełnienia">Wymaga uzupełnienia</MenuItem>
-          <MenuItem value="wszystkie">Pokaż wszystkie</MenuItem>
-        </Select>
-      </FormControl>
+          <InputLabel>Filtruj po statusie</InputLabel>
+          <Select
+            value={statusFilter}
+            label="Filtruj po statusie"
+            onChange={(e: SelectChangeEvent) => setStatusFilter(e.target.value)}
+          >
+            <MenuItem value="Nowe zgłoszenie">Nowe zgłoszenia</MenuItem>
+            <MenuItem value="zaakceptowany">Zaakceptowane</MenuItem>
+            <MenuItem value="odrzucony">Odrzucone</MenuItem>
+            <MenuItem value="wymaga uzupełnienia">Wymaga uzupełnienia</MenuItem>
+            <MenuItem value="wszystkie">Pokaż wszystkie</MenuItem>
+          </Select>
+        </FormControl>
+
+        {/* NOWY FILTR ROKU */}
+        <FormControl
+          size="small"
+          sx={{ minWidth: 200 }}
+          disabled={availableYears.length === 0} // Wyłącz, jeśli nie ma lat
+        >
+          <InputLabel>Filtruj po roku</InputLabel>
+          <Select
+            value={selectedYear}
+            label="Filtruj po roku"
+            onChange={(e: SelectChangeEvent) => setSelectedYear(e.target.value)}
+          >
+            <MenuItem value="all">Wszystkie lata</MenuItem>
+            {availableYears.map((year) => (
+              <MenuItem
+                key={year}
+                value={year}
+              >
+                {year}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      </Box>
 
       <TableContainer
         component={Paper}
@@ -132,8 +197,9 @@ const ApplicationsTabPanel = ({
             </TableRow>
           </TableHead>
           <TableBody>
-            {applications.length > 0 ? (
-              applications.map((app) => (
+            {/* ZMIANA: mapujemy po filteredApplications */}
+            {filteredApplications.length > 0 ? (
+              filteredApplications.map((app) => (
                 <TableRow
                   key={app.id}
                   hover
@@ -167,7 +233,7 @@ const ApplicationsTabPanel = ({
                   colSpan={6}
                   align="center"
                 >
-                  Brak wniosków o wybranym statusie.
+                  Brak wniosków o wybranych kryteriach (status i rok).
                 </TableCell>
               </TableRow>
             )}
@@ -229,7 +295,8 @@ export const ManageRecruitmentPage = () => {
   const handleExportCsv = async () => {
     toast.loading('Przygotowuję plik CSV...');
     try {
-      // Pobieramy dane z aktywnej zakładki, ale tylko te zaakceptowane
+      // Logika eksportu pozostaje bez zmian - eksportuje tylko zaakceptowanych
+      // z aktywnej zakładki, ignorując filtry UI.
       const activeTabPermission = visibleTabs[activeTab]?.permission;
       let acceptedApplications: any[] = [];
 
@@ -237,7 +304,10 @@ export const ManageRecruitmentPage = () => {
         acceptedApplications = await getDomesticApplications('zaakceptowany');
       } else if (activeTabPermission === 'international') {
         acceptedApplications = await getInternationalApplications('zaakceptowany');
-      } // Można dodać 'else if' dla studiów podyplomowych
+      } else if (activeTabPermission === 'postgraduate') {
+        // UZUPEŁNIENIE LOGIKI O PODYPLOMOWE
+        acceptedApplications = await getPostgraduateApplications('zaakceptowany');
+      }
 
       if (acceptedApplications.length === 0) {
         toast.dismiss();

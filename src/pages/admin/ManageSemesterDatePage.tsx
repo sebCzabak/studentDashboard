@@ -9,16 +9,20 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  List,
-  ListItem,
-  ListItemText,
-  ToggleButtonGroup,
-  ToggleButton,
   Grid,
   Dialog,
   DialogTitle,
   DialogContent,
   DialogActions,
+  Card,
+  CardContent,
+  Chip,
+  Stack,
+  IconButton,
+  Divider,
+  ToggleButtonGroup,
+  ToggleButton,
+  Drawer,
 } from '@mui/material';
 import toast from 'react-hot-toast';
 import { collection, query, where, onSnapshot, writeBatch, doc, getDocs } from 'firebase/firestore';
@@ -29,6 +33,13 @@ import { Timestamp } from 'firebase/firestore';
 import DatePicker, { DateObject } from 'react-multi-date-picker';
 import 'react-multi-date-picker/styles/layouts/mobile.css';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
+import CalendarTodayIcon from '@mui/icons-material/CalendarToday';
+import ComputerIcon from '@mui/icons-material/Computer';
+import SchoolIcon from '@mui/icons-material/School';
+import EventIcon from '@mui/icons-material/Event';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import SaveIcon from '@mui/icons-material/Save';
+import ClearIcon from '@mui/icons-material/Clear';
 import { Link as RouterLink } from 'react-router-dom';
 
 // Wewnętrzny komponent modala do kopiowania dat
@@ -101,6 +112,8 @@ const CopyDatesModal: React.FC<{
   );
 };
 
+const DRAWER_WIDTH = 400;
+
 export const ManageSemesterDatesPage = () => {
   const [semesters, setSemesters] = useState<Semester[]>([]);
   const [selectedSemesterId, setSelectedSemesterId] = useState<string>('');
@@ -109,6 +122,7 @@ export const ManageSemesterDatesPage = () => {
   const [selectedDates, setSelectedDates] = useState<DateObject[]>([]);
   const [loading, setLoading] = useState(true);
   const [isCopyModalOpen, setIsCopyModalOpen] = useState(false);
+  const [isCalendarDrawerOpen, setIsCalendarDrawerOpen] = useState(false);
 
   useEffect(() => {
     getSemesters().then((data) => {
@@ -163,6 +177,21 @@ export const ManageSemesterDatesPage = () => {
       })
       .sort((a, b) => a.date.getTime() - b.date.getTime());
   }, [selectedDates, editedFormats, datesFromDB]);
+
+  // Statystyki dla wybranego semestru
+  const stats = useMemo(() => {
+    const totalDates = displayedDates.length;
+    const stacjonarnyCount = displayedDates.filter((d) => d.format === 'stacjonarny').length;
+    const onlineCount = displayedDates.filter((d) => d.format === 'online').length;
+    const selectedSemester = semesters.find((s) => s.id === selectedSemesterId);
+
+    return {
+      totalDates,
+      stacjonarnyCount,
+      onlineCount,
+      semesterName: selectedSemester?.name || 'Brak wybranego semestru',
+    };
+  }, [displayedDates, semesters, selectedSemesterId]);
 
   const handleFormatChange = (date: Date, newFormat: 'stacjonarny' | 'online') => {
     const dateKey = date.toISOString().split('T')[0];
@@ -225,107 +254,251 @@ export const ManageSemesterDatesPage = () => {
         component={RouterLink}
         to="/admin"
         startIcon={<ArrowBackIcon />}
+        sx={{ mb: 2 }}
       >
         Wróć do pulpitu
       </Button>
-      <Typography
-        variant="h4"
-        gutterBottom
-      >
-        Zarządzaj Kalendarzem Semestru
-      </Typography>
-      <Paper sx={{ p: 2, mb: 2 }}>
-        <FormControl fullWidth>
-          <InputLabel>Wybierz semestr</InputLabel>
-          <Select
-            value={selectedSemesterId}
-            label="Wybierz semestr"
-            onChange={(e) => setSelectedSemesterId(e.target.value)}
-          >
-            {semesters.map((s) => (
-              <MenuItem
-                key={s.id}
-                value={s.id}
+
+      {/* Panel statystyk */}
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <Typography
+          variant="h6"
+          gutterBottom
+        >
+          Statystyki
+        </Typography>
+        <Grid
+          container
+          spacing={2}
+        >
+          <Grid size={{ xs: 6, sm: 3 }}>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="h4">{stats.totalDates}</Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
               >
-                {s.name}
-              </MenuItem>
-            ))}
-          </Select>
-        </FormControl>
+                Dat zjazdów
+              </Typography>
+            </Box>
+          </Grid>
+          <Grid size={{ xs: 6, sm: 3 }}>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="h4">{stats.stacjonarnyCount}</Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+              >
+                Stacjonarnych
+              </Typography>
+            </Box>
+          </Grid>
+          <Grid size={{ xs: 6, sm: 3 }}>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography variant="h4">{stats.onlineCount}</Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+              >
+                Online
+              </Typography>
+            </Box>
+          </Grid>
+          <Grid size={{ xs: 6, sm: 3 }}>
+            <Box sx={{ textAlign: 'center' }}>
+              <Typography
+                variant="body1"
+                sx={{ fontWeight: 'bold', mt: 1 }}
+              >
+                {stats.semesterName}
+              </Typography>
+              <Typography
+                variant="caption"
+                color="text.secondary"
+              >
+                Wybrany semestr
+              </Typography>
+            </Box>
+          </Grid>
+        </Grid>
       </Paper>
 
-      <Grid
-        container
-        spacing={3}
-      >
-        <Grid
-          size={{ xs: 12, md: 5 }}
-          sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}
+      {/* Pasek z wyborem semestru i akcjami */}
+      <Paper sx={{ p: 2, mb: 3 }}>
+        <Stack
+          direction="row"
+          spacing={2}
+          alignItems="center"
+          flexWrap="wrap"
         >
+          <FormControl
+            size="small"
+            sx={{ minWidth: 250 }}
+          >
+            <InputLabel>Wybierz semestr</InputLabel>
+            <Select
+              value={selectedSemesterId}
+              label="Wybierz semestr"
+              onChange={(e) => setSelectedSemesterId(e.target.value)}
+            >
+              {semesters.map((s) => (
+                <MenuItem
+                  key={s.id}
+                  value={s.id}
+                >
+                  {s.name}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <Button
+            variant="outlined"
+            startIcon={<CalendarTodayIcon />}
+            onClick={() => setIsCalendarDrawerOpen(true)}
+          >
+            Otwórz kalendarz
+          </Button>
+          <Button
+            variant="outlined"
+            startIcon={<ContentCopyIcon />}
+            onClick={() => setIsCopyModalOpen(true)}
+            disabled={!selectedSemesterId}
+          >
+            Kopiuj daty
+          </Button>
+          <Button
+            variant="contained"
+            startIcon={<SaveIcon />}
+            onClick={handleSaveChanges}
+            disabled={!selectedSemesterId || displayedDates.length === 0}
+            sx={{ ml: 'auto' }}
+          >
+            Zapisz zmiany
+          </Button>
+        </Stack>
+      </Paper>
+
+      {/* Widok kart z datami */}
+      {displayedDates.length === 0 ? (
+        <Paper sx={{ p: 4, textAlign: 'center' }}>
+          <EventIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
           <Typography
             variant="h6"
-            gutterBottom
+            color="text.secondary"
           >
-            Wybierz daty zjazdów
+            Brak dat zjazdów
           </Typography>
-          <DatePicker
-            multiple
-            value={selectedDates}
-            onChange={setSelectedDates}
-            format="DD.MM.YYYY"
-            mapDays={({ date }) => {
-              const isSelected = selectedDates.some((d) => d.format() === date.format());
-              if (isSelected) return { style: { backgroundColor: '#1976d2', color: 'white' } };
-            }}
-          />
-        </Grid>
-        <Grid size={{ xs: 12, md: 7 }}>
-          <Typography variant="h6">Wybrane daty i forma zajęć</Typography>
-          <Paper
-            variant="outlined"
-            sx={{ maxHeight: 350, overflow: 'auto', mt: 1 }}
+          <Typography
+            variant="body2"
+            color="text.secondary"
+            sx={{ mt: 1 }}
           >
-            <List>
-              {displayedDates.length > 0 ? (
-                displayedDates.map((d) => (
-                  <ListItem key={d.id}>
-                    <ListItemText
-                      primary={d.date.toLocaleDateString('pl-PL', { weekday: 'long', day: 'numeric', month: 'long' })}
-                    />
-                    <ToggleButtonGroup
-                      value={d.format}
-                      exclusive
+            Kliknij "Otwórz kalendarz" aby dodać daty zjazdów dla wybranego semestru
+          </Typography>
+        </Paper>
+      ) : (
+        <Grid
+          container
+          spacing={2}
+        >
+          {displayedDates.map((d) => (
+            <Grid
+              key={d.id}
+              size={{ xs: 12, sm: 6, md: 4, lg: 3 }}
+            >
+              <Card
+                sx={{
+                  height: '100%',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  borderLeft: `4px solid ${d.format === 'online' ? '#1976d2' : '#ed6c02'}`,
+                }}
+              >
+                <CardContent sx={{ flexGrow: 1 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                    <Box sx={{ flex: 1 }}>
+                      <Typography
+                        variant="h6"
+                        sx={{ fontWeight: 'bold', mb: 0.5 }}
+                      >
+                        {d.date.toLocaleDateString('pl-PL', { day: 'numeric', month: 'long', year: 'numeric' })}
+                      </Typography>
+                      <Typography
+                        variant="body2"
+                        color="text.secondary"
+                      >
+                        {d.date.toLocaleDateString('pl-PL', { weekday: 'long' })}
+                      </Typography>
+                    </Box>
+                    <Chip
+                      label={d.format === 'online' ? 'Online' : 'Stacjonarny'}
                       size="small"
-                      onChange={(_, newFormat) => newFormat && handleFormatChange(d.date, newFormat)}
-                    >
-                      <ToggleButton value="stacjonarny">Stacjonarne</ToggleButton>
-                      <ToggleButton value="online">Online</ToggleButton>
-                    </ToggleButtonGroup>
-                  </ListItem>
-                ))
-              ) : (
-                <ListItem>
-                  <ListItemText secondary="Brak wybranych dat. Wybierz je z kalendarza po lewej." />
-                </ListItem>
-              )}
-            </List>
-          </Paper>
-          <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
-            <Button
-              variant="contained"
-              onClick={handleSaveChanges}
-            >
-              Zapisz zmiany
-            </Button>
-            <Button
-              variant="outlined"
-              onClick={() => setIsCopyModalOpen(true)}
-            >
-              Kopiuj daty z semestru
-            </Button>
-          </Box>
+                      color={d.format === 'online' ? 'primary' : 'warning'}
+                      icon={d.format === 'online' ? <ComputerIcon /> : <SchoolIcon />}
+                    />
+                  </Box>
+                  <Divider sx={{ my: 1.5 }} />
+                  <ToggleButtonGroup
+                    value={d.format}
+                    exclusive
+                    fullWidth
+                    size="small"
+                    onChange={(_, newFormat) => newFormat && handleFormatChange(d.date, newFormat)}
+                  >
+                    <ToggleButton value="stacjonarny">
+                      <SchoolIcon sx={{ mr: 0.5 }} />
+                      Stacjonarny
+                    </ToggleButton>
+                    <ToggleButton value="online">
+                      <ComputerIcon sx={{ mr: 0.5 }} />
+                      Online
+                    </ToggleButton>
+                  </ToggleButtonGroup>
+                </CardContent>
+              </Card>
+            </Grid>
+          ))}
         </Grid>
-      </Grid>
+      )}
+
+      {/* Drawer z kalendarzem */}
+      <Drawer
+        anchor="right"
+        open={isCalendarDrawerOpen}
+        onClose={() => setIsCalendarDrawerOpen(false)}
+        PaperProps={{ sx: { width: DRAWER_WIDTH, p: 3 } }}
+      >
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Typography variant="h6">Wybierz daty zjazdów</Typography>
+          <IconButton
+            size="small"
+            onClick={() => setIsCalendarDrawerOpen(false)}
+          >
+            <ClearIcon />
+          </IconButton>
+        </Box>
+        <Divider sx={{ mb: 2 }} />
+        <DatePicker
+          multiple
+          value={selectedDates}
+          onChange={setSelectedDates}
+          format="DD.MM.YYYY"
+          containerClassName="rmdp-mobile"
+          style={{ width: '100%' }}
+          mapDays={({ date }) => {
+            const isSelected = selectedDates.some((d) => d.format() === date.format());
+            if (isSelected) return { style: { backgroundColor: '#1976d2', color: 'white' } };
+          }}
+        />
+        <Box sx={{ mt: 3 }}>
+          <Typography
+            variant="body2"
+            color="text.secondary"
+          >
+            Wybrano: {selectedDates.length} dat{selectedDates.length === 1 ? 'ę' : 'y'}
+          </Typography>
+        </Box>
+      </Drawer>
 
       <CopyDatesModal
         open={isCopyModalOpen}
