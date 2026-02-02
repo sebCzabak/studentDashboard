@@ -13,10 +13,13 @@ export interface SemesterDate {
   date: Timestamp;
   format: 'stacjonarny' | 'online';
 }
+/** Status planu: draft/ published – aktywny (zajęcia blokują dyspozycyjność); archived – wygaszony (terminy się zwalniają). */
+export type TimetableStatus = 'draft' | 'published' | 'archived';
+
 export interface Timetable {
   id: string;
   name: string;
-  status: 'draft' | 'published';
+  status: TimetableStatus;
   curriculumId: string;
   semesterId: string;
   groupIds: string[];
@@ -33,8 +36,12 @@ export interface Group {
   id: string;
   name: string;
   semesterId: string;
+  semester?: 'letni' | 'zimowy'; // Semestr letni/zimowy
   specializations?: { id: string; name: string }[];
   groupEmail?: string;
+  recruitmentYear?: string; // Rok rekrutacji (np. "2024/2025")
+  /** Numer semestru w cyklu (1–6). Ta sama grupa (strumień/mail) jest promowana co semestr. */
+  currentSemester?: number;
 }
 
 export interface Room {

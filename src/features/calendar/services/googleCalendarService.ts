@@ -190,8 +190,10 @@ export const exportToGoogleCalendar = async (
         };
         const firstDate = getNextDateForDay(semester.startDate.toDate(), entry.day);
 
+        const recurrenceMode = timetable.recurrence ?? 'weekly';
         let interval = 1;
-        if (timetable.recurrence === 'bi-weekly') interval = 2;
+        if (recurrenceMode === 'bi-weekly') interval = 2;
+        if (recurrenceMode === 'monthly') interval = 4;
 
         const recurringEvent: GoogleCalendarEvent = {
           ...(baseEvent as GoogleCalendarEvent),

@@ -10,6 +10,8 @@ import {
   doc,
   updateDoc,
   getDocs,
+  onSnapshot,
+  Unsubscribe,
 } from 'firebase/firestore';
 import type {
   UserProfile,
@@ -80,6 +82,20 @@ export const getSemesters = async (): Promise<Semester[]> => {
 };
 
 /**
+ * Subskrybuje zmiany kolekcji semestrów w czasie rzeczywistym (onSnapshot).
+ * Zwraca funkcję do odsubskrybowania.
+ */
+export const subscribeSemesters = (onUpdate: (semesters: Semester[]) => void): Unsubscribe => {
+  const semestersRef = collection(db, 'semesters');
+  const q = query(semestersRef, orderBy('startDate', 'desc'));
+  return onSnapshot(q, { includeMetadataChanges: true }, (snapshot) => {
+    if (snapshot.metadata.fromCache) return;
+    const semesters = snapshot.docs.map((d) => ({ id: d.id, ...d.data() }) as Semester);
+    onUpdate(semesters);
+  });
+};
+
+/**
  * Dodaje nowy semestr, konwertując daty na format Firestore Timestamp.
  */
 export const addSemester = async (data: {
@@ -100,7 +116,7 @@ export const addSemester = async (data: {
  */
 export const updateSemester = (
   id: string,
-  data: { name: string; startDate: Date; endDate: Date; type: string }
+  data: { name: string; startDate: Date; endDate: Date; type: string },
 ): Promise<void> => {
   return updateDoc(doc(db, 'semesters', id), {
     ...data,

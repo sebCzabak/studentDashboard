@@ -54,6 +54,8 @@ import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
 import FilterListIcon from '@mui/icons-material/FilterList';
 import MoreVertIcon from '@mui/icons-material/MoreVert';
+import ArchiveIcon from '@mui/icons-material/Archive';
+import UnarchiveIcon from '@mui/icons-material/Unarchive';
 import { TimetableFormModal } from '../../features/timetable/components/TimetableFormModal';
 import { GroupSelectionModal } from '../../features/timetable/components/GroupSelectionModal';
 import {
@@ -227,6 +229,7 @@ export const TimetablesListPage = () => {
     const totalPlans = filteredTimetables.length;
     const publishedPlans = filteredTimetables.filter((t) => t.status === 'published').length;
     const draftPlans = filteredTimetables.filter((t) => t.status === 'draft').length;
+    const archivedPlans = filteredTimetables.filter((t) => t.status === 'archived').length;
     const totalEntries = scheduleEntries.length;
     const entriesByTimetable = scheduleEntries.reduce((acc, entry) => {
       acc[entry.timetableId] = (acc[entry.timetableId] || 0) + 1;
@@ -237,6 +240,7 @@ export const TimetablesListPage = () => {
       totalPlans,
       publishedPlans,
       draftPlans,
+      archivedPlans,
       totalEntries,
       entriesByTimetable,
     };
@@ -267,6 +271,22 @@ export const TimetablesListPage = () => {
       loading: 'Aktualizowanie statusu...',
       success: `Status zmieniony na: ${newStatus === 'published' ? 'Opublikowany' : 'Roboczy'}`,
       error: 'Błąd podczas zmiany statusu.',
+    });
+  };
+
+  const handleArchive = async (timetable: Timetable) => {
+    await toast.promise(updateTimetableStatus(timetable.id, 'archived'), {
+      loading: 'Archiwizowanie planu...',
+      success: 'Plan zarchiwizowany. Terminy dyspozycyjności się zwolnią.',
+      error: 'Błąd podczas archiwizacji.',
+    });
+  };
+
+  const handleUnarchive = async (timetable: Timetable) => {
+    await toast.promise(updateTimetableStatus(timetable.id, 'draft'), {
+      loading: 'Przywracanie planu...',
+      success: 'Plan przywrócony z archiwum (status: Roboczy).',
+      error: 'Błąd podczas przywracania.',
     });
   };
 
@@ -344,6 +364,12 @@ export const TimetablesListPage = () => {
         break;
       case 'open':
         navigate(`/admin/timetables/${selectedTimetableForMenu.id}`);
+        break;
+      case 'archive':
+        handleArchive(selectedTimetableForMenu);
+        break;
+      case 'unarchive':
+        handleUnarchive(selectedTimetableForMenu);
         break;
       case 'pdf':
         exportTimetableToPdf(selectedTimetableForMenu);
@@ -605,6 +631,7 @@ export const TimetablesListPage = () => {
                   <MenuItem value="all">Wszystkie</MenuItem>
                   <MenuItem value="published">Opublikowane</MenuItem>
                   <MenuItem value="draft">Robocze</MenuItem>
+                  <MenuItem value="archived">Archiwum</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
@@ -683,7 +710,13 @@ export const TimetablesListPage = () => {
               )}
               {selectedStatus !== 'all' && (
                 <MuiChip
-                  label={`Status: ${selectedStatus === 'published' ? 'Opublikowane' : 'Robocze'}`}
+                  label={`Status: ${
+                    selectedStatus === 'published'
+                      ? 'Opublikowane'
+                      : selectedStatus === 'archived'
+                        ? 'Archiwum'
+                        : 'Robocze'
+                  }`}
                   size="small"
                   onDelete={() => setSelectedStatus('all')}
                   color="primary"
@@ -847,8 +880,21 @@ export const TimetablesListPage = () => {
                           {tt.name}
                         </Typography>
                         <Chip
-                          label={tt.status === 'published' ? 'Opublikowany' : 'Roboczy'}
-                          color={tt.status === 'published' ? 'success' : 'default'}
+                          label={
+                            tt.status === 'published'
+                              ? 'Opublikowany'
+                              : tt.status === 'archived'
+                                ? 'Archiwum'
+                                : 'Roboczy'
+                          }
+                          color={
+                            tt.status === 'published'
+                              ? 'success'
+                              : tt.status === 'archived'
+                                ? 'default'
+                                : 'default'
+                          }
+                          variant={tt.status === 'archived' ? 'outlined' : 'filled'}
                           size="small"
                         />
                       </Box>
@@ -983,6 +1029,21 @@ export const TimetablesListPage = () => {
           </ListItemIcon>
           <ListItemText>Edytuj dane</ListItemText>
         </MenuItem>
+        {selectedTimetableForMenu?.status === 'archived' ? (
+          <MenuItem onClick={() => handleMenuAction('unarchive')}>
+            <ListItemIcon>
+              <UnarchiveIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Przywróć z archiwum</ListItemText>
+          </MenuItem>
+        ) : (
+          <MenuItem onClick={() => handleMenuAction('archive')}>
+            <ListItemIcon>
+              <ArchiveIcon fontSize="small" />
+            </ListItemIcon>
+            <ListItemText>Archiwizuj plan (zwolnij dyspozycyjność)</ListItemText>
+          </MenuItem>
+        )}
         <Divider />
         <MenuItem onClick={() => handleMenuAction('pdf')}>
           <ListItemIcon>

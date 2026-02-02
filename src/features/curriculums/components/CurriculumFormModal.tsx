@@ -21,7 +21,7 @@ import {
 import AddCircleOutlineIcon from '@mui/icons-material/AddCircleOutline';
 import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
 import toast from 'react-hot-toast';
-import type { Curriculum, Subject, Semester, Department, Group } from '../../../features/timetable/types';
+import type { Curriculum, Subject, Semester, Department, Group, StudyMode } from '../../../features/timetable/types';
 import type { UserProfile } from '../../../features/user/userService';
 interface CurriculumFormModalProps {
   open: boolean;
@@ -51,7 +51,8 @@ export const CurriculumFormModal: React.FC<CurriculumFormModalProps> = ({
   const [programName, setProgramName] = useState('');
   const [academicYear, setAcademicYear] = useState('');
   const [semesters, setSemesters] = useState<any[]>([initialSemester]);
-  const [selectedDepartmentId, setSelectedDepartmentId] = useState<string>('all');
+  const [selectedDepartmentIds, setSelectedDepartmentIds] = useState<Map<number, string>>(new Map());
+  const [filterStudyMode, setFilterStudyMode] = useState<StudyMode | 'all'>('all');
 
   useEffect(() => {
     if (open) {
@@ -69,13 +70,32 @@ export const CurriculumFormModal: React.FC<CurriculumFormModalProps> = ({
     }
   }, [initialData, open]);
 
-  const filteredAndSortedSubjects = useMemo(() => {
-    const filtered =
-      selectedDepartmentId === 'all'
-        ? subjectsList
-        : subjectsList.filter((subject) => subject.departmentId === selectedDepartmentId);
+  // Filtrowane semestry
+  const filteredSemesters = useMemo(() => {
+    if (filterStudyMode === 'all') return semestersList;
+    return semestersList.filter((s) => s.type === filterStudyMode);
+  }, [semestersList, filterStudyMode]);
+
+  // Funkcja do filtrowania przedmiotów dla konkretnego semestru
+  const getFilteredSubjectsForSemester = (semIndex: number) => {
+    const departmentId = selectedDepartmentIds.get(semIndex) || 'all';
+    if (departmentId === 'all') {
+      return subjectsList.sort((a, b) => a.name.localeCompare(b.name, 'pl'));
+    }
+    
+    // Znajdź nazwę katedry po ID
+    const department = departments.find((d) => d.id === departmentId);
+    if (!department) {
+      return subjectsList.sort((a, b) => a.name.localeCompare(b.name, 'pl'));
+    }
+    
+    // Filtruj po nazwie katedry (przedmioty mają pole 'department' jako nazwa, nie 'departmentId')
+    const filtered = subjectsList.filter((subject: any) => {
+      // Sprawdź czy przedmiot ma pole 'department' (nazwa) lub 'departmentId' (ID)
+      return (subject.department === department.name) || (subject.departmentId === departmentId);
+    });
     return filtered.sort((a, b) => a.name.localeCompare(b.name, 'pl'));
-  }, [subjectsList, selectedDepartmentId]);
+  };
 
   const sortedLecturers = useMemo(
     () => [...lecturersList].sort((a, b) => a.displayName.localeCompare(b.displayName, 'pl')),
@@ -161,6 +181,23 @@ export const CurriculumFormModal: React.FC<CurriculumFormModalProps> = ({
             <Typography variant="overline">Semestry</Typography>
           </Divider>
 
+          {/* Filtr dla semestrów */}
+          <FormControl sx={{ minWidth: 240, mb: 2 }}>
+            <InputLabel size="small">Filtruj semestry po typie studiów</InputLabel>
+            <Select
+              value={filterStudyMode}
+              label="Filtruj semestry po typie studiów"
+              onChange={(e) => setFilterStudyMode(e.target.value as StudyMode | 'all')}
+              size="small"
+            >
+              <MenuItem value="all">Wszystkie typy</MenuItem>
+              <MenuItem value="stacjonarne">Stacjonarne</MenuItem>
+              <MenuItem value="niestacjonarne">Niestacjonarne</MenuItem>
+              <MenuItem value="podyplomowe">Podyplomowe</MenuItem>
+              <MenuItem value="anglojęzyczne">Anglojęzyczne</MenuItem>
+            </Select>
+          </FormControl>
+
           {semesters.map((semester, semIndex) => (
             <Paper
               key={semIndex}
@@ -177,23 +214,32 @@ export const CurriculumFormModal: React.FC<CurriculumFormModalProps> = ({
                   label="Wybierz Semestr"
                   onChange={(e: SelectChangeEvent) => handleSemesterChange(semIndex, e.target.value)}
                 >
-                  {(semestersList || []).map((s) => (
-                    <MenuItem
-                      key={s.id}
-                      value={s.id}
-                    >
-                      {s.name}
-                    </MenuItem>
-                  ))}
+                  {filteredSemesters.map((s) => {
+                    const semesterName = s.semesterNumber
+                      ? `${s.name} (${s.type}, sem. ${s.semesterNumber})`
+                      : `${s.name} (${s.type})`;
+                    return (
+                      <MenuItem
+                        key={s.id}
+                        value={s.id}
+                      >
+                        {semesterName}
+                      </MenuItem>
+                    );
+                  })}
                 </Select>
               </FormControl>
 
               <FormControl sx={{ minWidth: 240, mb: 2 }}>
                 <InputLabel size="small">Filtruj przedmioty po katedrze</InputLabel>
                 <Select
-                  value={selectedDepartmentId}
+                  value={selectedDepartmentIds.get(semIndex) || 'all'}
                   label="Filtruj przedmioty po katedrze"
-                  onChange={(e) => setSelectedDepartmentId(e.target.value)}
+                  onChange={(e) => {
+                    const newMap = new Map(selectedDepartmentIds);
+                    newMap.set(semIndex, e.target.value);
+                    setSelectedDepartmentIds(newMap);
+                  }}
                   size="small"
                 >
                   <MenuItem value="all">Wszystkie katedry</MenuItem>
@@ -217,7 +263,7 @@ export const CurriculumFormModal: React.FC<CurriculumFormModalProps> = ({
                   sx={{ mb: 2 }}
                 >
                   <Autocomplete
-                    options={filteredAndSortedSubjects}
+                    options={getFilteredSubjectsForSemester(semIndex)}
                     getOptionLabel={(option) => option.name}
                     value={subjectsList.find((s) => s.id === subject.subjectId) || null}
                     onChange={(_, newValue) =>

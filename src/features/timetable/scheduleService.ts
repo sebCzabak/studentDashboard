@@ -46,8 +46,11 @@ export const updateTimetable = async (id: string, data: Partial<Timetable>) => {
   });
 };
 
-export const updateTimetableStatus = (timetableId: string, newStatus: 'draft' | 'published') => {
-  if (!timetableId) throw new Error('Brak ID planu do aktualizacji.');
+export const updateTimetableStatus = (
+  timetableId: string,
+  newStatus: 'draft' | 'published' | 'archived'
+) => {
+  if (!timetableId) throw new Error('Brak ID planu.');
   const timetableDocRef = doc(db, 'timetables', timetableId);
   return updateDoc(timetableDocRef, {
     status: newStatus,
@@ -100,13 +103,24 @@ const checkForConflicts = async (newEntryData: EntryPayload, excludingId: string
   const q = query(entriesRef, where('day', '==', newEntryData.day), where('startTime', '==', newEntryData.startTime));
   const querySnapshot = await getDocs(q);
 
+  const docsToCheck = querySnapshot.docs.filter((d) => d.id !== excludingId);
+  if (docsToCheck.length === 0) return;
+
+  const timetableIds = [...new Set(docsToCheck.map((d) => (d.data() as ScheduleEntry).timetableId).filter(Boolean))] as string[];
+  const nonArchivedIds = new Set<string>();
+  await Promise.all(
+    timetableIds.map(async (id) => {
+      const tSnap = await getDoc(doc(db, 'timetables', id));
+      if (tSnap.exists() && (tSnap.data() as Timetable).status !== 'archived') nonArchivedIds.add(id);
+    })
+  );
+
   const newEntryIsWeekly = !newEntryData.specificDates || newEntryData.specificDates.length === 0;
   const newEntryDates = new Set(newEntryData.specificDates?.map((d) => d.toDate().toISOString().split('T')[0]));
 
-  for (const doc of querySnapshot.docs) {
-    if (doc.id === excludingId) continue;
-
+  for (const doc of docsToCheck) {
     const existingEntry = doc.data() as ScheduleEntry;
+    if (existingEntry.timetableId && !nonArchivedIds.has(existingEntry.timetableId)) continue;
     const existingEntryIsWeekly = !existingEntry.specificDates || existingEntry.specificDates.length === 0;
 
     // Sprawdź, czy zasoby (prowadzący, sala, grupy) się pokrywają
@@ -161,12 +175,24 @@ export const deleteScheduleEntry = (entryId: string) => {
   return deleteDoc(doc(db, 'scheduleEntries', entryId));
 };
 
-export const getEntriesForLecturer = async (lecturerId: string) => {
+/** Zwraca wpisy planu dla prowadzącego – tylko z planów aktywnych (draft/published). Wpisy z planów zarchiwizowanych nie blokują dyspozycyjności. */
+export const getEntriesForLecturer = async (lecturerId: string): Promise<ScheduleEntry[]> => {
   if (!lecturerId) return [];
   const entriesRef = collection(db, 'scheduleEntries');
   const q = query(entriesRef, where('lecturerId', '==', lecturerId));
   const querySnapshot = await getDocs(q);
-  return querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as ScheduleEntry[];
+  const entries = querySnapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as ScheduleEntry[];
+  const timetableIds = [...new Set(entries.map((e) => e.timetableId).filter(Boolean))] as string[];
+  if (timetableIds.length === 0) return entries;
+
+  const nonArchivedIds = new Set<string>();
+  await Promise.all(
+    timetableIds.map(async (id) => {
+      const tSnap = await getDoc(doc(db, 'timetables', id));
+      if (tSnap.exists() && (tSnap.data() as Timetable).status !== 'archived') nonArchivedIds.add(id);
+    })
+  );
+  return entries.filter((e) => e.timetableId && nonArchivedIds.has(e.timetableId));
 };
 export const copyTimetable = async (sourceTimetableId: string, newTimetableName: string) => {
   console.log(`[copyTimetable] Rozpoczynam kopiowanie planu o ID: ${sourceTimetableId}`);

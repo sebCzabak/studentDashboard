@@ -18,9 +18,10 @@ import {
   Chip,
   CircularProgress,
   Typography,
+  Divider,
 } from '@mui/material';
 import toast from 'react-hot-toast';
-import type { Timetable, Group, Semester, Curriculum, RecurrenceType } from '../types';
+import type { Timetable, Group, Semester, Curriculum } from '../types';
 
 interface TimetableFormModalProps {
   open: boolean;
@@ -44,13 +45,12 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
   const [name, setName] = useState('');
   const [academicYear, setAcademicYear] = useState('');
   const [studyMode, setStudyMode] = useState<'stacjonarny' | 'zaoczne' | 'podyplomowe' | 'anglojęzyczne'>(
-    'stacjonarny'
+    'stacjonarny',
   );
   const [curriculumId, setCurriculumId] = useState('');
   const [semesterId, setSemesterId] = useState('');
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
-  const [recurrence, setRecurrence] = useState<RecurrenceType>('weekly');
 
   const isEditMode = useMemo(() => !!timetable?.id, [timetable]);
 
@@ -62,12 +62,11 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
         setStudyMode(
           ['stacjonarny', 'zaoczne', 'podyplomowe', 'anglojęzyczne'].includes(timetable.studyMode as string)
             ? (timetable.studyMode as typeof studyMode)
-            : 'stacjonarny'
+            : 'stacjonarny',
         );
         setCurriculumId(timetable.curriculumId || '');
         setSemesterId(timetable.semesterId || '');
         setSelectedGroupIds(timetable.groupIds || []);
-        setRecurrence(timetable.recurrence || 'weekly');
       } else {
         setName('');
         setAcademicYear('');
@@ -75,7 +74,6 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
         setCurriculumId('');
         setSemesterId('');
         setSelectedGroupIds([]);
-        setRecurrence('weekly');
       }
     }
   }, [timetable, open]);
@@ -84,30 +82,54 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
     if (!curriculumId) return [];
     const selectedCurriculum = curriculums.find((c) => c.id === curriculumId);
     if (!selectedCurriculum?.semesters) return [];
-
     return selectedCurriculum.semesters
       .map((curriculumSemester) => semesters.find((s) => s.id === curriculumSemester.semesterId))
       .filter((s): s is Semester => s !== undefined);
   }, [curriculumId, curriculums, semesters]);
 
+  /** Grupy przypisane do wybranego semestru (semesterId) – tylko te pokazujemy w selectcie */
+  const availableGroups = useMemo(() => {
+    if (!semesterId) return [];
+    return groups.filter((g) => g.semesterId === semesterId);
+  }, [groups, semesterId]);
+
   useEffect(() => {
     const selectedCurriculum = curriculums.find((c) => c.id === curriculumId);
-    if (selectedCurriculum) {
-      setAcademicYear(selectedCurriculum.academicYear);
-    }
-    if (availableSemesters.length > 0 && !availableSemesters.find((s) => s.id === semesterId)) {
-      setSemesterId('');
-    }
+    if (selectedCurriculum) setAcademicYear(selectedCurriculum.academicYear);
+    if (availableSemesters.length > 0 && !availableSemesters.find((s) => s.id === semesterId)) setSemesterId('');
   }, [curriculumId, curriculums, availableSemesters, semesterId]);
 
+  /** Gdy semestr zostanie wyzerowany (np. po zmianie siatki), wyczyść zaznaczenie grup */
+  useEffect(() => {
+    if (!semesterId) setSelectedGroupIds([]);
+  }, [semesterId]);
+
+  const handleSemesterChange = (newSemesterId: string) => {
+    setSemesterId(newSemesterId);
+    if (!newSemesterId) {
+      setSelectedGroupIds([]);
+      return;
+    }
+    const newAvailable = groups.filter((g) => g.semesterId === newSemesterId);
+    setSelectedGroupIds((prev) => prev.filter((id) => newAvailable.some((g) => g.id === id)));
+  };
+
   const handleSubmit = async () => {
-    if (!name || !curriculumId || !semesterId || selectedGroupIds.length === 0) {
-      toast.error('Proszę wypełnić wszystkie wymagane pola.');
+    if (!name.trim()) {
+      toast.error('Podaj nazwę planu.');
+      return;
+    }
+    if (!curriculumId || !semesterId) {
+      toast.error('Wybierz siatkę programową i semestr.');
+      return;
+    }
+    if (selectedGroupIds.length === 0) {
+      toast.error('Wybierz co najmniej jedną grupę studencką.');
       return;
     }
     setLoading(true);
     const data: Partial<Timetable> = {
-      name,
+      name: name.trim(),
       academicYear,
       studyMode,
       curriculumId,
@@ -115,7 +137,6 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
       groupIds: selectedGroupIds,
       curriculumName: curriculums.find((c) => c.id === curriculumId)?.programName,
       semesterName: semesters.find((s) => s.id === semesterId)?.name,
-      recurrence,
     };
     await onSave(data, timetable?.id);
     setLoading(false);
@@ -129,40 +150,24 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
       fullWidth
       maxWidth="sm"
     >
-      <DialogTitle>{isEditMode ? 'Edytuj Plan Zajęć' : 'Stwórz Nowy Plan Zajęć'}</DialogTitle>
+      <DialogTitle>{isEditMode ? 'Edytuj Plan Zajęć' : 'Nowy Plan Zajęć'}</DialogTitle>
       <DialogContent>
         <Stack
-          spacing={2}
-          sx={{ pt: 2 }}
+          spacing={2.5}
+          sx={{ pt: 1 }}
         >
           <TextField
-            label="Nazwa Planu"
+            label="Nazwa planu"
             value={name}
             onChange={(e) => setName(e.target.value)}
             required
             fullWidth
+            placeholder="np. Zarządzanie I st. – sem. 3, stacjonarne"
           />
-          <TextField
-            label="Rok Akademicki"
-            value={academicYear}
-            InputProps={{ readOnly: true }}
-            fullWidth
-          />
-          <FormControl fullWidth>
-            <InputLabel>Cykliczność zajęć (dla Kal. Google)</InputLabel>
-            <Select
-              value={recurrence}
-              label="Cykliczność zajęć (dla Kal. Google)"
-              onChange={(e) => setRecurrence(e.target.value as RecurrenceType)}
-            >
-              <MenuItem value="weekly">Co tydzień</MenuItem>
-              <MenuItem value="bi-weekly">Co 2 tygodnie</MenuItem>
-              <MenuItem value="monthly">Co 4 tygodnie (z Google Meet)</MenuItem>
-            </Select>
-          </FormControl>
-          <FormControl>
+
+          <Box>
             <Typography
-              variant="caption"
+              variant="subtitle2"
               color="text.secondary"
               sx={{ mb: 1 }}
             >
@@ -174,22 +179,25 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
               exclusive
               onChange={(_, v) => v && setStudyMode(v)}
               fullWidth
+              size="small"
             >
               <ToggleButton value="stacjonarny">Stacjonarne</ToggleButton>
               <ToggleButton value="zaoczne">Zaoczne</ToggleButton>
               <ToggleButton value="podyplomowe">Podyplomowe</ToggleButton>
               <ToggleButton value="anglojęzyczne">Anglojęzyczne</ToggleButton>
             </ToggleButtonGroup>
-          </FormControl>
+          </Box>
+
+          <Divider />
 
           <FormControl
             fullWidth
             required
           >
-            <InputLabel>Siatka Programowa</InputLabel>
+            <InputLabel>Siatka programowa</InputLabel>
             <Select
               value={curriculumId}
-              label="Siatka Programowa"
+              label="Siatka programowa"
               onChange={(e) => setCurriculumId(e.target.value)}
             >
               {curriculums.map((c) => (
@@ -212,7 +220,7 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
             <Select
               value={semesterId}
               label="Semestr"
-              onChange={(e) => setSemesterId(e.target.value)}
+              onChange={(e) => handleSemesterChange(e.target.value)}
             >
               {availableSemesters.map((s) => (
                 <MenuItem
@@ -225,28 +233,42 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
             </Select>
           </FormControl>
 
+          <TextField
+            label="Rok akademicki"
+            value={academicYear}
+            fullWidth
+            InputProps={{ readOnly: true }}
+            helperText="Ustawiany automatycznie z siatki programowej"
+          />
+
+          <Divider />
+
           <FormControl
             fullWidth
             required
+            disabled={!semesterId || availableGroups.length === 0}
           >
-            <InputLabel>Grupy Studenckie</InputLabel>
+            <InputLabel>Grupy studenckie</InputLabel>
             <Select<string[]>
               multiple
               value={selectedGroupIds}
               onChange={(e) => setSelectedGroupIds(e.target.value as string[])}
-              input={<OutlinedInput label="Grupy Studenckie" />}
+              input={<OutlinedInput label="Grupy studenckie" />}
               renderValue={(selected) => (
                 <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
                   {selected.map((id) => (
                     <Chip
                       key={id}
-                      label={groups.find((g) => g.id === id)?.name || id}
+                      label={
+                        groups.find((g) => g.id === id)?.name || availableGroups.find((g) => g.id === id)?.name || id
+                      }
+                      size="small"
                     />
                   ))}
                 </Box>
               )}
             >
-              {groups.map((g) => (
+              {availableGroups.map((g) => (
                 <MenuItem
                   key={g.id}
                   value={g.id}
@@ -255,10 +277,19 @@ export const TimetableFormModal: React.FC<TimetableFormModalProps> = ({
                 </MenuItem>
               ))}
             </Select>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              sx={{ mt: 0.5 }}
+            >
+              {semesterId
+                ? `Grupy przypisane do semestru (${availableGroups.length}) – wybierz grupy do planu`
+                : 'Najpierw wybierz siatkę i semestr'}
+            </Typography>
           </FormControl>
         </Stack>
       </DialogContent>
-      <DialogActions>
+      <DialogActions sx={{ px: 3, pb: 2 }}>
         <Button onClick={onClose}>Anuluj</Button>
         <Button
           onClick={handleSubmit}

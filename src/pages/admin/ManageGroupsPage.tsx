@@ -40,30 +40,35 @@ import GroupIcon from '@mui/icons-material/Group';
 import SchoolIcon from '@mui/icons-material/School';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import CloseIcon from '@mui/icons-material/Close';
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward';
 import {
-  getGroups,
+  subscribeGroups,
+  subscribeSpecializations,
   addSpecialization,
   updateSpecialization,
   deleteSpecialization,
   updateGroup,
   deleteGroup,
   addGroup,
-  getAllSpecializations,
+  promoteGroup,
 } from '../../features/groups/groupsService';
+import { subscribeSemesters } from '../../features/shared/dictionaryService';
 import toast from 'react-hot-toast';
 import { Link as RouterLink } from 'react-router-dom';
 import { GroupFormModal } from '../../features/timetable/components/GroupFormModal';
 import { SpecializationFormModal } from '../../features/groups/components/SpecializationFormModal';
-import type { Group, Specialization } from '../../features/timetable/types';
+import type { Group, Specialization, Semester } from '../../features/timetable/types';
 
 const DRAWER_WIDTH = 400;
 
 export const ManageGroupsPage = () => {
   const [groups, setGroups] = useState<Group[]>([]);
   const [specializations, setSpecializations] = useState<Specialization[]>([]);
+  const [semesters, setSemesters] = useState<Semester[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'withSpecs' | 'withoutSpecs'>('all');
+  const [filterSemester, setFilterSemester] = useState<'all' | 'letni' | 'zimowy'>('all');
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
@@ -75,31 +80,83 @@ export const ManageGroupsPage = () => {
   const [editingSpec, setEditingSpec] = useState<Partial<Specialization> | null>(null);
   const [currentGroupId, setCurrentGroupId] = useState<string | null>(null);
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      const [groupsData, specsData] = await Promise.all([getGroups(), getAllSpecializations()]);
-      setGroups(groupsData as Group[]);
-      setSpecializations(specsData as Specialization[]);
-    } catch (error) {
-      toast.error('Błąd podczas pobierania danych.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // Wszystkie dane przez onSnapshot – chip z semestrem/rokem od razu ma pełne dane (tylko snapshot z serwera)
   useEffect(() => {
-    fetchData();
+    setLoading(true);
+    const unsubGroups = subscribeGroups((data) => {
+      setGroups(data as Group[]);
+      setLoading(false);
+    });
+    const unsubSpecs = subscribeSpecializations((data) => {
+      setSpecializations(data as Specialization[]);
+    });
+    const unsubSems = subscribeSemesters((data) => {
+      setSemesters(data as Semester[]);
+    });
+    return () => {
+      unsubGroups();
+      unsubSpecs();
+      unsubSems();
+    };
   }, []);
 
   const specsByGroup = useMemo(() => {
-    return specializations.reduce((acc, spec) => {
-      const groupId = spec.groupId;
-      if (!acc[groupId]) acc[groupId] = [];
-      acc[groupId].push(spec);
-      return acc;
-    }, {} as Record<string, Specialization[]>);
+    return specializations.reduce(
+      (acc, spec) => {
+        const groupId = spec.groupId;
+        if (!acc[groupId]) acc[groupId] = [];
+        acc[groupId].push(spec);
+        return acc;
+      },
+      {} as Record<string, Specialization[]>,
+    );
   }, [specializations]);
+
+  // Oblicza aktualny numer semestru na podstawie roku rekrutacji i bieżącej daty (np. 2024/2025 → semestr 4)
+  const getCurrentSemesterFromRecruitmentYear = (recruitmentYear: string | undefined): number | null => {
+    if (!recruitmentYear) return null;
+    const match = recruitmentYear.match(/^(\d{4})\/(\d{4})$/);
+    if (!match) return null;
+    const startYear = parseInt(match[1], 10);
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const month = now.getMonth() + 1; // 1-12
+    // Rok akademicki: zimowy od IX, letni II–VI. Początek roku akademickiego = wrzesień.
+    const academicYearStart = month >= 9 ? currentYear : currentYear - 1;
+    const yearsFromStart = academicYearStart - startYear;
+    if (yearsFromStart < 0) return null;
+    const semesterInYear = month >= 2 && month <= 6 ? 2 : 1; // 2 = letni, 1 = zimowy
+    return yearsFromStart * 2 + semesterInYear;
+  };
+
+  // Funkcja do obliczania numeru semestru dla grupy (z semesterId / słownika semestrów)
+  const calculateSemesterNumber = (group: Group): number | null => {
+    if (!group.semesterId || !group.semester) return null;
+
+    const semester = semesters.find((s) => s.id === group.semesterId);
+    if (!semester) return null;
+
+    // Wyciągnij rok akademicki z nazwy semestru (np. "Semestr 2024/2025" lub "2024/2025")
+    const yearMatch = semester.name.match(/(\d{4})\/(\d{4})/);
+    if (!yearMatch) return null;
+
+    const startYear = parseInt(yearMatch[1], 10);
+    const endYear = parseInt(yearMatch[2], 10);
+
+    // Oblicz numer semestru na podstawie roku i typu
+    // Zimowe = nieparzyste (1, 3, 5...), Letnie = parzyste (2, 4, 6...)
+    // Zakładamy, że pierwszy semestr to zimowy 2024/2025 = semestr 1
+    // Różnica lat od 2024/2025
+    const yearsDiff = startYear - 2024;
+    const baseSemester = yearsDiff * 2 + 1; // Zimowy dla danego roku
+
+    if (group.semester === 'zimowy') {
+      return baseSemester;
+    } else {
+      // Letni = następny semestr po zimowym
+      return baseSemester + 1;
+    }
+  };
 
   // Statystyki
   const stats = useMemo(() => {
@@ -141,8 +198,13 @@ export const ManageGroupsPage = () => {
       results = results.filter((g) => (specsByGroup[g.id]?.length || 0) === 0);
     }
 
+    // Filtrowanie po semestrze letni/zimowy
+    if (filterSemester !== 'all') {
+      results = results.filter((g) => g.semester === filterSemester);
+    }
+
     return results;
-  }, [groups, searchTerm, filterType, specsByGroup]);
+  }, [groups, searchTerm, filterType, filterSemester, specsByGroup]);
 
   const handleOpenGroupModal = (group: Group | null = null) => {
     setEditingGroup(group);
@@ -156,7 +218,6 @@ export const ManageGroupsPage = () => {
       success: 'Grupa zapisana!',
       error: (err) => err.message || 'Błąd zapisu.',
     });
-    fetchData();
     setIsGroupModalOpen(false);
   };
 
@@ -167,7 +228,6 @@ export const ManageGroupsPage = () => {
         success: 'Grupa usunięta.',
         error: 'Błąd podczas usuwania.',
       });
-      fetchData();
       if (selectedGroup?.id === group.id) {
         setIsDrawerOpen(false);
         setSelectedGroup(null);
@@ -186,7 +246,6 @@ export const ManageGroupsPage = () => {
       error: 'Błąd podczas usuwania.',
     });
     setSelectedGroups(new Set());
-    fetchData();
     if (selectedGroup && selectedGroups.has(selectedGroup.id)) {
       setIsDrawerOpen(false);
       setSelectedGroup(null);
@@ -201,7 +260,7 @@ export const ManageGroupsPage = () => {
 
   const handleSaveSpecialization = async (
     data: Partial<Omit<Specialization, 'id' | 'groupId'>>,
-    id?: string
+    id?: string,
   ): Promise<void> => {
     if (!id && !currentGroupId) {
       toast.error('Błąd: Brak wybranej grupy.');
@@ -218,7 +277,6 @@ export const ManageGroupsPage = () => {
       success: `Specjalizacja ${id ? 'zaktualizowana' : 'dodana'}!`,
       error: 'Błąd zapisu.',
     });
-    fetchData();
     setIsSpecModalOpen(false);
   };
 
@@ -229,7 +287,6 @@ export const ManageGroupsPage = () => {
         success: 'Specjalizacja usunięta.',
         error: 'Błąd podczas usuwania.',
       });
-      fetchData();
     }
   };
 
@@ -259,6 +316,20 @@ export const ManageGroupsPage = () => {
   const handleCloseDrawer = () => {
     setIsDrawerOpen(false);
     setSelectedGroup(null);
+  };
+
+  const handlePromoteGroup = async (group: Group) => {
+    const current = group.currentSemester ?? 0;
+    if (current >= 6) {
+      toast.error('Grupa jest już na ostatnim (6.) semestrze.');
+      return;
+    }
+    await toast.promise(promoteGroup(group.id, current), {
+      loading: 'Promowanie grupy...',
+      success: `Grupa promowana na semestr ${current + 1}.`,
+      error: (err) => err.message || 'Błąd promocji.',
+    });
+    setSelectedGroup((prev) => (prev?.id === group.id ? { ...prev, currentSemester: current + 1 } : prev));
   };
 
   if (loading) return <CircularProgress />;
@@ -336,8 +407,8 @@ export const ManageGroupsPage = () => {
             severity="warning"
             sx={{ mt: 2 }}
           >
-            {stats.groupsWithoutSpecs} {stats.groupsWithoutSpecs === 1 ? 'grupa nie ma' : 'grupy nie mają'}{' '}
-            przypisanych specjalizacji.
+            {stats.groupsWithoutSpecs} {stats.groupsWithoutSpecs === 1 ? 'grupa nie ma' : 'grupy nie mają'} przypisanych
+            specjalizacji.
           </Alert>
         )}
       </Paper>
@@ -380,6 +451,21 @@ export const ManageGroupsPage = () => {
               <MenuItem value="all">Wszystkie</MenuItem>
               <MenuItem value="withSpecs">Ze specjalizacjami</MenuItem>
               <MenuItem value="withoutSpecs">Bez specjalizacji</MenuItem>
+            </Select>
+          </FormControl>
+          <FormControl
+            size="small"
+            sx={{ minWidth: 200 }}
+          >
+            <InputLabel>Semestr</InputLabel>
+            <Select
+              value={filterSemester}
+              label="Semestr"
+              onChange={(e) => setFilterSemester(e.target.value as typeof filterSemester)}
+            >
+              <MenuItem value="all">Wszystkie</MenuItem>
+              <MenuItem value="zimowy">Zimowy</MenuItem>
+              <MenuItem value="letni">Letni</MenuItem>
             </Select>
           </FormControl>
           <Button
@@ -491,15 +577,67 @@ export const ManageGroupsPage = () => {
                     </IconButton>
                   </Box>
 
-                  {group.groupEmail && (
-                    <Chip
-                      icon={<EmailIcon />}
-                      label={group.groupEmail}
-                      size="small"
-                      sx={{ mb: 1 }}
-                      onClick={(e) => e.stopPropagation()}
-                    />
-                  )}
+                  <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 1 }}>
+                    {group.groupEmail && (
+                      <Chip
+                        icon={<EmailIcon />}
+                        label={group.groupEmail}
+                        size="small"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    )}
+                    {group.semester && (
+                      <Chip
+                        label={group.semester === 'letni' ? 'Letni' : 'Zimowy'}
+                        size="small"
+                        color={group.semester === 'letni' ? 'success' : 'info'}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    )}
+                    {(() => {
+                      const semesterNumber = calculateSemesterNumber(group);
+                      const semester = semesters.find((s) => s.id === group.semesterId);
+                      if (semesterNumber && semester) {
+                        const yearMatch = semester.name.match(/(\d{4})\/(\d{4})/);
+                        const academicYear = yearMatch ? yearMatch[0] : '';
+                        return (
+                          <Chip
+                            label={`${semesterNumber}. semestr${academicYear ? ` (${academicYear})` : ''}`}
+                            size="small"
+                            color="primary"
+                            variant="outlined"
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        );
+                      }
+                      return null;
+                    })()}
+                    {group.recruitmentYear &&
+                      (() => {
+                        const currentSem = getCurrentSemesterFromRecruitmentYear(group.recruitmentYear);
+                        return (
+                          <Chip
+                            label={
+                              currentSem != null
+                                ? `${group.recruitmentYear} (semestr ${currentSem})`
+                                : group.recruitmentYear
+                            }
+                            size="small"
+                            variant="outlined"
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        );
+                      })()}
+                    {group.currentSemester != null && (
+                      <Chip
+                        label={`Sem. ${group.currentSemester}/6`}
+                        size="small"
+                        color="secondary"
+                        variant="outlined"
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    )}
+                  </Box>
 
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 1 }}>
                     <Badge
@@ -593,6 +731,73 @@ export const ManageGroupsPage = () => {
                       label={selectedGroup.groupEmail}
                       sx={{ mt: 0.5 }}
                     />
+                  </Box>
+                )}
+
+                {(selectedGroup.semester || selectedGroup.recruitmentYear || selectedGroup.currentSemester != null) && (
+                  <Box>
+                    <Typography
+                      variant="subtitle2"
+                      color="text.secondary"
+                    >
+                      Semestr / Rok rekrutacji
+                    </Typography>
+                    <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
+                      {selectedGroup.semester && (
+                        <Chip
+                          label={selectedGroup.semester === 'letni' ? 'Letni' : 'Zimowy'}
+                          color={selectedGroup.semester === 'letni' ? 'success' : 'info'}
+                        />
+                      )}
+                      {(() => {
+                        const semesterNumber = calculateSemesterNumber(selectedGroup);
+                        const semester = semesters.find((s) => s.id === selectedGroup.semesterId);
+                        if (semesterNumber && semester) {
+                          const yearMatch = semester.name.match(/(\d{4})\/(\d{4})/);
+                          const academicYear = yearMatch ? yearMatch[0] : '';
+                          return (
+                            <Chip
+                              label={`${semesterNumber}. semestr${academicYear ? ` (${academicYear})` : ''}`}
+                              color="primary"
+                              variant="outlined"
+                            />
+                          );
+                        }
+                        return null;
+                      })()}
+                      {selectedGroup.recruitmentYear &&
+                        (() => {
+                          const currentSem = getCurrentSemesterFromRecruitmentYear(selectedGroup.recruitmentYear);
+                          return (
+                            <Chip
+                              label={
+                                currentSem != null
+                                  ? `${selectedGroup.recruitmentYear} (semestr ${currentSem})`
+                                  : selectedGroup.recruitmentYear
+                              }
+                              variant="outlined"
+                            />
+                          );
+                        })()}
+                      {selectedGroup.currentSemester != null && (
+                        <Chip
+                          label={`Sem. ${selectedGroup.currentSemester}/6 w cyklu`}
+                          color="secondary"
+                          variant="outlined"
+                        />
+                      )}
+                    </Box>
+                    {selectedGroup.currentSemester != null && selectedGroup.currentSemester < 6 && (
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<ArrowUpwardIcon />}
+                        onClick={() => handlePromoteGroup(selectedGroup)}
+                        sx={{ mt: 1 }}
+                      >
+                        Promuj na semestr {selectedGroup.currentSemester + 1}
+                      </Button>
+                    )}
                   </Box>
                 )}
 
@@ -722,6 +927,7 @@ export const ManageGroupsPage = () => {
           onClose={() => setIsGroupModalOpen(false)}
           onSave={handleSaveGroup}
           initialData={editingGroup}
+          semesters={semesters}
         />
       )}
 
