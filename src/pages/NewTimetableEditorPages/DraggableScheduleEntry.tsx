@@ -126,6 +126,22 @@ export const DraggableScheduleEntry: React.FC<DraggableScheduleEntryProps> = ({
               Sala: {entry.roomName || 'Nie przypisano'}
             </Typography>
           )}
+          {entry.notes && (
+            <Typography
+              variant="caption"
+              color="inherit"
+              sx={{
+                display: 'block',
+                mt: 0.5,
+                fontStyle: 'italic',
+                opacity: 0.95,
+                lineHeight: 1.2,
+              }}
+              title={entry.notes}
+            >
+              {entry.notes.length > 40 ? `${entry.notes.slice(0, 40)}…` : entry.notes}
+            </Typography>
+          )}
         </Box>
       </Box>
 
