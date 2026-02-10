@@ -65,6 +65,17 @@ function mergeCellEntries(cellEntries: ScheduleEntry[]): MergedEntry[] {
   });
 }
 
+/** Zwraca "imię nazwisko" bez tytułu naukowego, do nazwy pliku PDF. */
+function nameForPdfFilename(displayName: string | undefined): string {
+  if (!displayName?.trim()) return 'harmonogram';
+  const withoutTitle = displayName
+    .trim()
+    .replace(/^(prof\.\s*)?(dr\s+hab\.?|dr|mgr|inż\.?|lek\.?)\s+/i, '')
+    .trim();
+  const forFile = (withoutTitle || displayName).replace(/\s+/g, '_').replace(/[^\wąćęłńóśźżĄĆĘŁŃÓŚŹŻ\-_]/g, '');
+  return forFile || 'harmonogram';
+}
+
 // Funkcja pomocnicza do konwersji obrazu na Base64
 const imageToBase64 = (url: string): Promise<string> =>
   fetch(url)
@@ -178,7 +189,7 @@ export const PrintableSchedulePage = () => {
           }
         },
       });
-      doc.save(`harmonogram_${user?.displayName?.replace(/ /g, '_')}.pdf`);
+      doc.save(`harmonogram_${nameForPdfFilename(user?.displayName)}.pdf`);
       toast.success('PDF został wygenerowany!', { id: toastId });
     } catch (error) {
       console.error('Błąd generowania PDF:', error);

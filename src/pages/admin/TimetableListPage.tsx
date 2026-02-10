@@ -102,11 +102,13 @@ export const TimetablesListPage = () => {
   const [editingTimetable, setEditingTimetable] = useState<Timetable | null>(null);
   const navigate = useNavigate();
 
-  const [activeTab, setActiveTab] = useState<'stacjonarny' | 'zaoczne' | 'podyplomowe' | 'anglojęzyczne'>('stacjonarny');
+  const [activeTab, setActiveTab] = useState<'stacjonarny' | 'zaoczne' | 'podyplomowe' | 'anglojęzyczne'>(
+    'stacjonarny',
+  );
   const [selectedYear, setSelectedYear] = useState<string>('all');
   const [selectedCurriculumId, setSelectedCurriculumId] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
-  const [selectedStatus, setSelectedStatus] = useState<string>('all');
+  const [selectedStatus, setSelectedStatus] = useState<string>('active');
 
   const [isGoogleExportModalOpen, setGoogleExportModalOpen] = useState(false);
   const [timetableToExport, setTimetableToExport] = useState<Timetable | null>(null);
@@ -139,7 +141,7 @@ export const TimetablesListPage = () => {
         (error) => {
           toast.error(`Błąd synchronizacji kolekcji: ${c.name}`);
           console.error(error);
-        }
+        },
       );
       unsubscribers.push(unsubscribe);
     });
@@ -154,7 +156,7 @@ export const TimetablesListPage = () => {
 
   const academicYears = useMemo(
     () => ['all', ...Array.from(new Set(timetables.map((t) => t.academicYear).filter(Boolean)))],
-    [timetables]
+    [timetables],
   );
   const availableCurriculums = useMemo(() => {
     const allOption: Curriculum = {
@@ -172,7 +174,12 @@ export const TimetablesListPage = () => {
       const matchesTab = (t.studyMode || 'stacjonarny') === activeTab;
       const matchesYear = selectedYear === 'all' || t.academicYear === selectedYear;
       const matchesCurriculum = selectedCurriculumId === 'all' || t.curriculumId === selectedCurriculumId;
-      const matchesStatus = selectedStatus === 'all' || t.status === selectedStatus;
+      const matchesStatus =
+        selectedStatus === 'all'
+          ? true
+          : selectedStatus === 'active'
+            ? t.status !== 'archived'
+            : t.status === selectedStatus;
 
       // Wyszukiwarka - szuka w nazwie planu i nazwie siatki programowej
       const matchesSearch =
@@ -231,10 +238,13 @@ export const TimetablesListPage = () => {
     const draftPlans = filteredTimetables.filter((t) => t.status === 'draft').length;
     const archivedPlans = filteredTimetables.filter((t) => t.status === 'archived').length;
     const totalEntries = scheduleEntries.length;
-    const entriesByTimetable = scheduleEntries.reduce((acc, entry) => {
-      acc[entry.timetableId] = (acc[entry.timetableId] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    const entriesByTimetable = scheduleEntries.reduce(
+      (acc, entry) => {
+        acc[entry.timetableId] = (acc[entry.timetableId] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>,
+    );
 
     return {
       totalPlans,
@@ -339,7 +349,7 @@ export const TimetablesListPage = () => {
       lecturers,
       groups,
       specializations,
-      semesterDates
+      semesterDates,
     );
     setTimetableToExport(null);
   };
@@ -555,9 +565,7 @@ export const TimetablesListPage = () => {
 
       {/* Pasek wyszukiwarki i filtrów */}
       <Paper sx={{ p: 2, mb: 2 }}>
-        <Stack
-          spacing={2}
-        >
+        <Stack spacing={2}>
           {/* Wyszukiwarka */}
           <TextField
             fullWidth
@@ -628,6 +636,7 @@ export const TimetablesListPage = () => {
                   label="Status"
                   onChange={(e) => setSelectedStatus(e.target.value)}
                 >
+                  <MenuItem value="active">Aktywne (bez archiwum)</MenuItem>
                   <MenuItem value="all">Wszystkie</MenuItem>
                   <MenuItem value="published">Opublikowane</MenuItem>
                   <MenuItem value="draft">Robocze</MenuItem>
@@ -656,7 +665,7 @@ export const TimetablesListPage = () => {
                         >
                           {year}
                         </MenuItem>
-                      )
+                      ),
                   )}
                 </Select>
               </FormControl>
@@ -686,7 +695,7 @@ export const TimetablesListPage = () => {
           </Grid>
 
           {/* Aktywne filtry - chipy */}
-          {(searchTerm || selectedStatus !== 'all' || selectedYear !== 'all' || selectedCurriculumId !== 'all') && (
+          {(searchTerm || selectedStatus !== 'active' || selectedYear !== 'all' || selectedCurriculumId !== 'all') && (
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1, alignItems: 'center' }}>
               <FilterListIcon
                 fontSize="small"
@@ -708,17 +717,19 @@ export const TimetablesListPage = () => {
                   variant="outlined"
                 />
               )}
-              {selectedStatus !== 'all' && (
+              {selectedStatus !== 'active' && (
                 <MuiChip
                   label={`Status: ${
                     selectedStatus === 'published'
                       ? 'Opublikowane'
                       : selectedStatus === 'archived'
                         ? 'Archiwum'
-                        : 'Robocze'
+                        : selectedStatus === 'all'
+                          ? 'Wszystkie'
+                          : 'Robocze'
                   }`}
                   size="small"
-                  onDelete={() => setSelectedStatus('all')}
+                  onDelete={() => setSelectedStatus('active')}
                   color="primary"
                   variant="outlined"
                 />
@@ -745,7 +756,7 @@ export const TimetablesListPage = () => {
                 size="small"
                 onClick={() => {
                   setSearchTerm('');
-                  setSelectedStatus('all');
+                  setSelectedStatus('active');
                   setSelectedYear('all');
                   setSelectedCurriculumId('all');
                 }}
@@ -787,10 +798,12 @@ export const TimetablesListPage = () => {
                 color="success"
                 startIcon={<EditIcon />}
                 onClick={handleBulkPublish}
-                disabled={!Array.from(selectedTimetables).some((id) => {
-                  const tt = timetables.find((t) => t.id === id);
-                  return tt && tt.status !== 'published';
-                })}
+                disabled={
+                  !Array.from(selectedTimetables).some((id) => {
+                    const tt = timetables.find((t) => t.id === id);
+                    return tt && tt.status !== 'published';
+                  })
+                }
               >
                 Opublikuj
               </Button>
@@ -799,10 +812,12 @@ export const TimetablesListPage = () => {
                 color="warning"
                 startIcon={<EditIcon />}
                 onClick={handleBulkUnpublish}
-                disabled={!Array.from(selectedTimetables).some((id) => {
-                  const tt = timetables.find((t) => t.id === id);
-                  return tt && tt.status === 'published';
-                })}
+                disabled={
+                  !Array.from(selectedTimetables).some((id) => {
+                    const tt = timetables.find((t) => t.id === id);
+                    return tt && tt.status === 'published';
+                  })
+                }
               >
                 Cofnij publikację
               </Button>
@@ -871,7 +886,9 @@ export const TimetablesListPage = () => {
                         size="small"
                         sx={{ mt: -1, ml: -1 }}
                       />
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexGrow: 1 }}>
+                      <Box
+                        sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexGrow: 1 }}
+                      >
                         <Typography
                           variant="h6"
                           component="div"
@@ -888,11 +905,7 @@ export const TimetablesListPage = () => {
                                 : 'Roboczy'
                           }
                           color={
-                            tt.status === 'published'
-                              ? 'success'
-                              : tt.status === 'archived'
-                                ? 'default'
-                                : 'default'
+                            tt.status === 'published' ? 'success' : tt.status === 'archived' ? 'default' : 'default'
                           }
                           variant={tt.status === 'archived' ? 'outlined' : 'filled'}
                           size="small"
@@ -908,9 +921,7 @@ export const TimetablesListPage = () => {
                       >
                         Siatka programowa:
                       </Typography>
-                      <Typography variant="body1">
-                        {tt.curriculumName || '---'}
-                      </Typography>
+                      <Typography variant="body1">{tt.curriculumName || '---'}</Typography>
                     </Box>
 
                     <Box sx={{ mb: 2 }}>
@@ -940,7 +951,9 @@ export const TimetablesListPage = () => {
                             borderRadius: 4,
                           },
                         }}
-                        color={progressPercentage === 100 ? 'success' : progressPercentage >= 50 ? 'primary' : 'warning'}
+                        color={
+                          progressPercentage === 100 ? 'success' : progressPercentage >= 50 ? 'primary' : 'warning'
+                        }
                       />
                       <Typography
                         variant="caption"
