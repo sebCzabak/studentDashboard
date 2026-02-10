@@ -31,7 +31,7 @@ const imageToBase64 = (url: string): Promise<string> =>
           reader.onloadend = () => resolve(reader.result as string);
           reader.onerror = reject;
           reader.readAsDataURL(blob);
-        })
+        }),
     );
 
 const normalizeDate = (date: Date): Date => {
@@ -60,13 +60,40 @@ const getTypeAbbreviation = (type: EntryType | undefined | null): string => {
 
 // --- Export Functions ---
 
+const buildExcelEntryText = (
+  entry: ScheduleEntry,
+  specMap: Map<string, Specialization>,
+  options: { addDates?: boolean } = {},
+): string => {
+  const typeAbbr = getTypeAbbreviation(entry.type);
+  let text = `${entry.subjectName} (${typeAbbr})\n${entry.lecturerName}\nSala: ${entry.roomName}`;
+  const specIds = entry.specializationIds || [];
+  if (specIds.length > 0) {
+    const specLabels = specIds
+      .map((id) => specMap.get(id))
+      .filter(Boolean)
+      .map((s) => s!.abbreviation || s!.name)
+      .join(', ');
+    if (specLabels) text += `\nSpecjalności: ${specLabels}`;
+  }
+  if (options.addDates && entry.specificDates && entry.specificDates.length > 0) {
+    text += `\nDaty: ${entry.specificDates.map((ts) => ts.toDate().toLocaleDateString('pl-PL')).join(', ')}`;
+  }
+  if (entry.notes) text += `\nKomentarz: ${entry.notes}`;
+  return text;
+};
+
 export const exportTimetableToExcel = async (timetable: Timetable) => {
   const toastId = toast.loading('Przygotowywanie danych do Excela...');
   try {
-    const entriesRef = collection(db, 'scheduleEntries');
-    const q = query(entriesRef, where('timetableId', '==', timetable.id));
-    const entriesSnapshot = await getDocs(q);
+    const [entriesSnapshot, specializationsSnapshot] = await Promise.all([
+      getDocs(query(collection(db, 'scheduleEntries'), where('timetableId', '==', timetable.id))),
+      getDocs(collection(db, 'specializations')),
+    ]);
     const entries = entriesSnapshot.docs.map((doc) => doc.data() as ScheduleEntry);
+    const specMap = new Map(
+      specializationsSnapshot.docs.map((d) => [d.id, { id: d.id, ...d.data() } as Specialization]),
+    );
 
     if (entries.length === 0) {
       toast.error('Ten plan nie zawiera jeszcze żadnych zajęć.', { id: toastId });
@@ -80,19 +107,19 @@ export const exportTimetableToExcel = async (timetable: Timetable) => {
 
     if (isSessionBased) {
       const semesterDatesSnap = await getDocs(
-        query(collection(db, 'semesterDates'), where('semesterId', '==', timetable.semesterId))
+        query(collection(db, 'semesterDates'), where('semesterId', '==', timetable.semesterId)),
       );
       const semesterDates = semesterDatesSnap.docs
         .map((doc) => doc.data() as SemesterDate)
         .sort((a, b) => a.date.toMillis() - b.date.toMillis());
       const uniqueDates = Array.from(
-        new Set(semesterDates.map((sd) => sd.date.toDate().toISOString().split('T')[0]))
+        new Set(semesterDates.map((sd) => sd.date.toDate().toISOString().split('T')[0])),
       ).map((d) => new Date(d));
 
       const headers = [
         'Godzina',
         ...uniqueDates.map((d) =>
-          d.toLocaleDateString('pl-PL', { weekday: 'short', day: '2-digit', month: '2-digit' })
+          d.toLocaleDateString('pl-PL', { weekday: 'short', day: '2-digit', month: '2-digit' }),
         ),
       ];
       dataForSheet.push(headers);
@@ -103,23 +130,18 @@ export const exportTimetableToExcel = async (timetable: Timetable) => {
           const dateOnly = date.toISOString().split('T')[0];
           const cellEntries = entries
             .filter(
-              (e) => e.date?.toDate().toISOString().split('T')[0] === dateOnly && e.startTime === timeSlot.startTime
+              (e) => e.date?.toDate().toISOString().split('T')[0] === dateOnly && e.startTime === timeSlot.startTime,
             )
-            .map((entry) => {
-              let entryText = `${entry.subjectName}\n${entry.lecturerName}\nSala: ${entry.roomName}`;
-              if (entry.notes) entryText += `\nNotatki: ${entry.notes}`;
-              return entryText;
-            })
-            .join('\n---\n');
-          row.push(cellEntries);
+            .map((entry) => buildExcelEntryText(entry, specMap));
+          row.push(cellEntries.join('\n---\n'));
         }
         dataForSheet.push(row);
       }
     } else {
-      const daysToDisplay: DayOfWeek[] =
-        timetable.studyMode === 'niestacjonarne'
-          ? ['Sobota', 'Niedziela']
-          : ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek'];
+      const isWeekendPlan = timetable.studyMode === 'niestacjonarne' || timetable.studyMode === 'zaoczne';
+      const daysToDisplay: DayOfWeek[] = isWeekendPlan
+        ? ['Sobota', 'Niedziela']
+        : ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek'];
 
       const headers = ['Godzina', ...daysToDisplay];
       dataForSheet.push(headers);
@@ -129,17 +151,8 @@ export const exportTimetableToExcel = async (timetable: Timetable) => {
         for (const day of daysToDisplay) {
           const cellEntries = entries
             .filter((e) => e.day === day && e.startTime === timeSlot.startTime)
-            .map((entry) => {
-              const datesText =
-                entry.specificDates && entry.specificDates.length > 0
-                  ? `\nDaty: ${entry.specificDates.map((ts) => ts.toDate().toLocaleDateString('pl-PL')).join(', ')}`
-                  : '';
-              let entryText = `${entry.subjectName}\n${entry.lecturerName}\nSala: ${entry.roomName}${datesText}`;
-              if (entry.notes) entryText += `\nNotatki: ${entry.notes}`;
-              return entryText;
-            })
-            .join('\n---\n');
-          row.push(cellEntries);
+            .map((entry) => buildExcelEntryText(entry, specMap, { addDates: true }));
+          row.push(cellEntries.join('\n---\n'));
         }
         dataForSheet.push(row);
       }
@@ -188,7 +201,7 @@ export const exportTimetableToPdf = async (timetable: Timetable) => {
     }
 
     const allSpecializations = specializationsSnapshot.docs.map(
-      (doc) => ({ id: doc.id, ...doc.data() } as Specialization)
+      (doc) => ({ id: doc.id, ...doc.data() }) as Specialization,
     );
 
     toast.loading('Generowanie pliku PDF...', { id: toastId });
@@ -199,7 +212,7 @@ export const exportTimetableToPdf = async (timetable: Timetable) => {
     const boldFontBuffer = await boldFontResponse.arrayBuffer();
     const fontBase64 = btoa(new Uint8Array(fontBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ''));
     const boldFontBase64 = btoa(
-      new Uint8Array(boldFontBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+      new Uint8Array(boldFontBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ''),
     );
     doc.addFileToVFS('Roboto-Regular.ttf', fontBase64);
     doc.addFont('Roboto-Regular.ttf', 'Roboto', 'normal');
@@ -232,7 +245,7 @@ export const exportTimetableToPdf = async (timetable: Timetable) => {
         .map((doc) => doc.data() as SemesterDate)
         .sort((a, b) => a.date.toMillis() - b.date.toMillis());
       const uniqueDates = Array.from(
-        new Set(semesterDates.map((sd) => sd.date.toDate().toISOString().split('T')[0]))
+        new Set(semesterDates.map((sd) => sd.date.toDate().toISOString().split('T')[0])),
       ).map((d) => new Date(d));
 
       if (uniqueDates.length === 0) {
@@ -243,7 +256,8 @@ export const exportTimetableToPdf = async (timetable: Timetable) => {
       tableHeaders = [
         'Godziny',
         ...uniqueDates.map(
-          (date) => `${DAYS[date.getDay()]} (${date.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit' })})`
+          (date) =>
+            `${DAYS[date.getDay()]} (${date.toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit' })})`,
         ),
       ];
 
@@ -253,7 +267,7 @@ export const exportTimetableToPdf = async (timetable: Timetable) => {
           const dateOnly = date.toISOString().split('T')[0];
           const cellEntries = entries
             .filter(
-              (e) => e.date?.toDate().toISOString().split('T')[0] === dateOnly && e.startTime === timeSlot.startTime
+              (e) => e.date?.toDate().toISOString().split('T')[0] === dateOnly && e.startTime === timeSlot.startTime,
             )
             .map((entry) => {
               const specNumbers = (entry.specializationIds || [])
@@ -272,8 +286,11 @@ export const exportTimetableToPdf = async (timetable: Timetable) => {
         tableBody.push(rowData);
       }
     } else {
-      // Logic for DAY-BASED schedules (stacjonarne/anglojęzyczne)
-      const daysToDisplay: DayOfWeek[] = ['Sobota', 'Niedziela'];
+      // Logic for DAY-BASED schedules: weekend dla zaocznych/niestacjonarnych, dni powszednie dla stacjonarnych
+      const isWeekendPlan = timetable.studyMode === 'niestacjonarne' || timetable.studyMode === 'zaoczne';
+      const daysToDisplay: DayOfWeek[] = isWeekendPlan
+        ? ['Sobota', 'Niedziela']
+        : ['Poniedziałek', 'Wtorek', 'Środa', 'Czwartek', 'Piątek'];
       tableHeaders = ['Godziny', ...daysToDisplay];
 
       for (const timeSlot of TIME_SLOTS) {
@@ -348,7 +365,7 @@ export const exportTimetableToPdf = async (timetable: Timetable) => {
 export const exportWorkloadReportToPdf = async (
   reportData: WorkloadRow[],
   allTypes: string[],
-  fileNameDetails: { year: string; semester: string }
+  fileNameDetails: { year: string; semester: string },
 ) => {
   const toastId = toast.loading('Generowanie PDF z raportem...');
   try {
@@ -364,7 +381,7 @@ export const exportWorkloadReportToPdf = async (
     const boldFontBuffer = await boldFontResponse.arrayBuffer();
     const fontBase64 = btoa(new Uint8Array(fontBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ''));
     const boldFontBase64 = btoa(
-      new Uint8Array(boldFontBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+      new Uint8Array(boldFontBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ''),
     );
 
     doc.addFileToVFS('Roboto-Regular.ttf', fontBase64);
@@ -411,7 +428,7 @@ export const exportWorkloadReportToPdf = async (
 
     const fileName = `raport_obciazenia_${fileNameDetails.year.replace('/', '-')}_${fileNameDetails.semester.replace(
       / /g,
-      '_'
+      '_',
     )}`;
     doc.save(`${fileName}.pdf`);
     toast.success('PDF został wygenerowany!', { id: toastId });

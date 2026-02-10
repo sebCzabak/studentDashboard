@@ -25,6 +25,46 @@ import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { DAYS, TIME_SLOTS } from '../../features/timetable/constants';
 
+/** Jeden blok po scaleniu wpisów (te same zajęcia, różne plany/grupy łączone). */
+interface MergedEntry {
+  subjectName: string;
+  roomName: string;
+  groupNames: string[];
+  hasSpecificDates: boolean;
+  specificDatesLabel?: string;
+  /** Komentarz / notatki (np. daty zajęć) – z pierwszego wpisu z niepustym notes. */
+  notes?: string;
+}
+
+/** Grupuje wpisy w komórce po (przedmiot, prowadzący, sala) – zwraca jeden blok na „slot” z połączonymi grupami. */
+function mergeCellEntries(cellEntries: ScheduleEntry[]): MergedEntry[] {
+  const byKey = new Map<string, ScheduleEntry[]>();
+  for (const e of cellEntries) {
+    const key = `${e.day}|${e.startTime}|${e.subjectId}|${e.lecturerId}|${e.roomId || ''}`;
+    if (!byKey.has(key)) byKey.set(key, []);
+    byKey.get(key)!.push(e);
+  }
+  return Array.from(byKey.entries()).map(([, group]) => {
+    const first = group[0];
+    const allGroupNames = group.flatMap((e) => e.groupNames || []);
+    const uniqueGroupNames = Array.from(new Set(allGroupNames));
+    const hasSpecificDates = group.some((e) => e.specificDates && e.specificDates.length > 0);
+    const datesLabels = group
+      .filter((e) => e.specificDates?.length)
+      .flatMap((e) => (e.specificDates || []).map((ts) => ts.toDate().toLocaleDateString('pl-PL')));
+    const uniqueDates = Array.from(new Set(datesLabels)).sort();
+    const notes = group.map((e) => e.notes?.trim()).find(Boolean) || undefined;
+    return {
+      subjectName: first.subjectName,
+      roomName: first.roomName || '',
+      groupNames: uniqueGroupNames,
+      hasSpecificDates,
+      specificDatesLabel: uniqueDates.length > 0 ? uniqueDates.join(', ') : undefined,
+      notes,
+    };
+  });
+}
+
 // Funkcja pomocnicza do konwersji obrazu na Base64
 const imageToBase64 = (url: string): Promise<string> =>
   fetch(url)
@@ -39,7 +79,7 @@ const imageToBase64 = (url: string): Promise<string> =>
           reader.onloadend = () => resolve(reader.result as string);
           reader.onerror = reject;
           reader.readAsDataURL(blob);
-        })
+        }),
     );
 
 export const PrintableSchedulePage = () => {
@@ -84,7 +124,7 @@ export const PrintableSchedulePage = () => {
       const boldFontBuffer = await boldFontResponse.arrayBuffer();
       const fontBase64 = btoa(new Uint8Array(fontBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ''));
       const boldFontBase64 = btoa(
-        new Uint8Array(boldFontBuffer).reduce((data, byte) => data + String.fromCharCode(byte), '')
+        new Uint8Array(boldFontBuffer).reduce((data, byte) => data + String.fromCharCode(byte), ''),
       );
 
       doc.addFileToVFS('Roboto-Regular.ttf', fontBase64);
@@ -97,13 +137,17 @@ export const PrintableSchedulePage = () => {
       for (const timeSlot of TIME_SLOTS) {
         const rowData = [timeSlot.label];
         for (const day of DAYS) {
-          const cellEntries = entries
-            .filter((e) => e.day === day && e.startTime === timeSlot.startTime)
+          const cellEntries = entries.filter((e) => e.day === day && e.startTime === timeSlot.startTime);
+          const merged = mergeCellEntries(cellEntries);
+          const cellText = merged
             .map(
-              (entry) => `${entry.subjectName}\n` + `Gr: ${entry.groupNames.join(', ')}\n` + `Sala: ${entry.roomName}`
+              (m) =>
+                `${m.subjectName}\nGr: ${m.groupNames.join(', ')}\nSala: ${m.roomName}` +
+                (m.specificDatesLabel ? `\n(${m.specificDatesLabel})` : '') +
+                (m.notes ? `\n${m.notes}` : ''),
             )
             .join('\n\n');
-          rowData.push(cellEntries);
+          rowData.push(cellText);
         }
         tableBody.push(rowData);
       }
@@ -213,14 +257,15 @@ export const PrintableSchedulePage = () => {
                 <TableCell>{timeSlot.label}</TableCell>
                 {DAYS.map((day) => {
                   const cellEntries = entries.filter((e) => e.day === day && e.startTime === timeSlot.startTime);
+                  const merged = mergeCellEntries(cellEntries);
                   return (
                     <TableCell
                       key={day}
                       sx={{ verticalAlign: 'top', border: '1px solid #eee', p: 0.5 }}
                     >
-                      {cellEntries.map((entry) => (
+                      {merged.map((m, idx) => (
                         <Paper
-                          key={entry.id}
+                          key={`${day}-${timeSlot.startTime}-${m.subjectName}-${idx}`}
                           elevation={0}
                           sx={{ p: 1, mb: 0.5, backgroundColor: 'grey.100' }}
                         >
@@ -228,26 +273,22 @@ export const PrintableSchedulePage = () => {
                             variant="body2"
                             fontWeight="bold"
                           >
-                            {entry.subjectName}
+                            {m.subjectName}
                           </Typography>
                           <Typography
                             variant="caption"
                             display="block"
                           >
-                            Gr: {(entry.groupNames || []).join(', ')}
+                            Gr: {m.groupNames.join(', ')}
                           </Typography>
                           <Typography
                             variant="caption"
                             display="block"
                           >
-                            Sala: {entry.roomName}
+                            Sala: {m.roomName}
                           </Typography>
-                          {entry.specificDates && entry.specificDates.length > 0 && (
-                            <Tooltip
-                              title={(entry.specificDates || [])
-                                .map((ts) => ts.toDate().toLocaleDateString())
-                                .join(', ')}
-                            >
+                          {m.hasSpecificDates && (
+                            <Tooltip title={m.specificDatesLabel || ''}>
                               <Typography
                                 variant="caption"
                                 color="primary"
@@ -256,6 +297,15 @@ export const PrintableSchedulePage = () => {
                                 (Konkretne daty)
                               </Typography>
                             </Tooltip>
+                          )}
+                          {m.notes && (
+                            <Typography
+                              variant="caption"
+                              display="block"
+                              sx={{ mt: 0.5, fontStyle: 'italic', color: 'text.secondary' }}
+                            >
+                              {m.notes}
+                            </Typography>
                           )}
                         </Paper>
                       ))}
